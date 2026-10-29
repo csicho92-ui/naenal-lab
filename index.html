@@ -149,7 +149,7 @@ fresh();
 
 async function loadModels(){
   try{
-    const r=await fetch('/api/models',{headers:{'x-passcode':CFG.pass}});
+    const r=await fetch('/api/models',{headers:{'x-passcode':encodeURIComponent(CFG.pass)}});
     const j=await r.json();
     if(!r.ok){fatal=j.message||'모델 목록을 불러오지 못했어요.';return render()}
     fatal='';CFG.models=j.models||[];
@@ -164,7 +164,7 @@ async function loadModels(){
 async function callLLM(prompt,role,model,max_tokens){
   const t=performance.now();
   try{
-    const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json','x-passcode':CFG.pass},
+    const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json','x-passcode':encodeURIComponent(CFG.pass)},
       body:JSON.stringify({model,prompt,max_tokens,temperature:role==='draft'?0.4:0})});
     const j=await r.json().catch(()=>({}));
     if(!r.ok)throw {code:j.error||('http_'+r.status),message:j.message||''};

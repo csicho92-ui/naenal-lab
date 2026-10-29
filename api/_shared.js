@@ -6,7 +6,9 @@ export function checkAccess(req, res) {
     return false;
   }
   const need = process.env.APP_PASSCODE;
-  if (need && req.headers['x-passcode'] !== need) {
+  let got = req.headers['x-passcode'] || '';
+  try { got = decodeURIComponent(got); } catch (e) {}
+  if (need && got.trim() !== need.trim()) {
     res.status(401).json({ error: 'bad_passcode', message: '암호가 맞지 않아요.' });
     return false;
   }
