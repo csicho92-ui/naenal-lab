@@ -187,11 +187,11 @@ async function readAnswer(ans){
 time 때: 하루 단위로 좁혀진 시점 (예: 2학년 가을)
 place 장소: 어디였는지 (예: 공대 비상계단)
 object 사물: 그 자리에 있던 물건 (예: 삼각김밥, 자판기 커피)
-action 행동: 화자의 몸짓·한 일 (예: 커피를 세 번 뽑았다, 학식을 혼자 먹기 싫어서)
+action 행동: 화자의 몸짓·한 일, 그리고 그 행동의 이유를 말한 절 (예: 커피를 세 번 뽑았다, 학식을 혼자 먹기 싫어서 → 행동)
 speech 타인의 말: 다른 사람이 실제로 한 말 그대로 (예: "뭐 하러 왔냐"). 말을 옮긴 것만. 소리·응원 소리·분위기는 감각이다.
 sense 감각: 소리·냄새·온도·촉감·빛 (예: 손이 시렸다, 아무 소리도 안 났어요)
 change 변화: 그 뒤 달라진 '행동' (예: 옆에 가만히 앉게 됐다). 깨달음·교훈·마음가짐은 아니다.
-other 그 밖의 말: 위에 안 맞지만 사용자가 스스로 꺼낸 중요한 문장 (예: 그게 좋았어요)
+other 그 밖의 말: 위 어디에도 안 맞을 때만. 사용자가 스스로 꺼낸 짧은 소감 (예: 그게 좋았어요)
 감정 슬롯은 없다.
 
 [답변 유형 — 하나만]
@@ -266,7 +266,7 @@ function activeMs(){return S.activeMs}
 function goodQuestion(q){
   if(!q||q.length>60)return false;
   if((q.match(/\?/g)||[]).length!==1)return false;
-  if(/감정|기분|느끼셨|느낌이 어땠|마음이 어땠|좋은 표현|잘 쓰|훌륭/.test(q))return false;
+  if(/감정|기분|느끼|느꼈|느낌|마음이|감각|재료|좋은 표현|잘 쓰|훌륭|다른 .*(은|는) 뭐가/.test(q))return false;
   if(S.qa.some(x=>x.q===q))return false;
   return true;
 }
