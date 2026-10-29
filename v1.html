@@ -1,0 +1,696 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>내 안의 날씨 실험실 v1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: 왼쪽은 책 한 쪽처럼 질문이 놓이는 지면, 오른쪽은 로직 상태를 보여주는 관측 기록지 */
+:root{
+  --paper:#EDF0F1; --page:#F8FAFA; --ink:#1E2833; --ink-2:#55626E; --line:#D3DADE;
+  --sky:#2F6684; --sky-soft:#DCE8EF; --mine:#1E2833; --new-bg:#F7E3C9; --new-fg:#8A4A12; --flag-bg:#F4CFC6; --flag-fg:#9A2C17;
+  --ok:#2E7A55; --warn:#A06A12;
+  --f-display:"Gowun Batang","Nanum Myeongjo",serif;
+  --f-body:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#11161B; --page:#182027; --ink:#DCE3E8; --ink-2:#97A5B1; --line:#2B3640;
+  --sky:#86B7D4; --sky-soft:#1F3443; --mine:#F1F5F8; --new-bg:#4A3418; --new-fg:#F2C894; --flag-bg:#5A241A; --flag-fg:#F7B6A5;
+  --ok:#73C69A; --warn:#E3B260; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#11161B; --page:#182027; --ink:#DCE3E8; --ink-2:#97A5B1; --line:#2B3640;
+  --sky:#86B7D4; --sky-soft:#1F3443; --mine:#F1F5F8; --new-bg:#4A3418; --new-fg:#F2C894; --flag-bg:#5A241A; --flag-fg:#F7B6A5;
+  --ok:#73C69A; --warn:#E3B260; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.6;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px}
+.wrap{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:20px;align-items:start}
+@media (max-width:860px){.wrap{grid-template-columns:minmax(0,1fr)}}
+header.top{max-width:1080px;margin:0 auto 16px;display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+header.top h1{font-family:var(--f-display);font-weight:700;font-size:24px;margin:0;letter-spacing:-.01em}
+header.top p{margin:0;color:var(--ink-2);font-size:13px}
+.modelbar{display:flex;gap:8px;flex-wrap:wrap}
+.mb{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;padding:4px 10px;border:1px solid var(--line);border-radius:99px;background:var(--page);max-width:100%;cursor:pointer}
+.mb span{color:var(--ink-2)} .mb code{font-family:var(--f-mono);font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46vw}
+.setbtn{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:5px 14px;border-radius:99px;border:1px solid var(--sky);background:var(--page);color:var(--sky)}
+.setbtn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}
+.setbtn.on,.setbtn:hover{background:var(--sky);color:var(--page)}
+.settings{margin-bottom:22px;padding:16px 18px;border:1px solid var(--sky);border-radius:6px;background:var(--sky-soft)}
+.settings-head{display:flex;justify-content:space-between;align-items:center}
+.settings-head h2{font-size:17px;margin:0}
+.settings input{background:var(--page)}
+.mb .dot{width:7px;height:7px;border-radius:50%;background:var(--ok)} .mb.off .dot{background:var(--warn)}
+.page{background:var(--page);border:1px solid var(--line);border-radius:6px;padding:28px clamp(18px,4vw,40px);min-height:520px;min-width:0}
+.eyebrow{font-size:12px;letter-spacing:.08em;color:var(--ink-2);font-weight:600}
+.bigq{font-family:var(--f-display);font-size:clamp(22px,3.4vw,28px);line-height:1.45;margin:10px 0 22px;text-wrap:balance}
+textarea,input[type=text]{width:100%;font:inherit;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:12px 14px;resize:vertical}
+textarea:focus,input:focus,button:focus-visible{outline:2px solid var(--sky);outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+button{font:inherit;font-size:14px;border-radius:4px;padding:9px 16px;cursor:pointer;border:1px solid var(--line);background:var(--page);color:var(--ink)}
+button.primary{background:var(--sky);border-color:var(--sky);color:var(--page);font-weight:600}
+button.quiet{border-color:transparent;color:var(--ink-2);text-decoration:underline;text-underline-offset:3px;padding-inline:8px}
+button:disabled{opacity:.45;cursor:default}
+.weathers{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+@media (max-width:520px){.weathers{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.wx{display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 6px;background:var(--paper)}
+.wx svg{width:40px;height:40px;stroke:var(--sky);fill:none;stroke-width:1.6;stroke-linecap:round}
+.wx:hover{border-color:var(--sky)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px;min-height:28px}
+.chip{font-size:13px;padding:3px 10px;border-radius:99px;background:var(--sky-soft);color:var(--ink)}
+.chip b{font-weight:600;color:var(--sky);margin-right:4px}
+.scene{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;padding:12px 16px;border-left:3px solid var(--sky);background:var(--paper);margin-bottom:20px;font-size:14px}
+.scene dt{color:var(--ink-2)} .scene dd{margin:0;font-weight:500}
+.chat{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+.b{max-width:85%;padding:9px 14px;border-radius:14px;font-size:15px}
+.b.ai{background:var(--sky-soft);align-self:flex-start;border-bottom-left-radius:4px}
+.b.me{background:var(--paper);border:1px solid var(--line);align-self:flex-end;border-bottom-right-radius:4px}
+.b.btn{font-style:italic;color:var(--ink-2)}
+.note{color:var(--ink-2);font-size:13px}
+.busy{color:var(--sky);font-size:14px;margin-top:10px}
+.cards{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 16px}
+.card{display:flex;align-items:center;gap:6px;padding:6px 6px 6px 12px;border:1px solid var(--line);border-radius:4px;background:var(--paper);font-size:14px}
+.card small{color:var(--sky);font-weight:600;font-size:11px}
+.card.off{opacity:.4;text-decoration:line-through}
+.card button{padding:2px 8px;border:none;background:none;color:var(--ink-2)}
+h2{font-family:var(--f-display);font-size:20px;margin:0 0 6px}
+h3{font-size:13px;letter-spacing:.06em;color:var(--ink-2);margin:22px 0 8px;font-weight:600}
+.draft{font-family:var(--f-display);font-size:18px;line-height:1.95;max-width:34em}
+.draft h2{font-size:24px;margin-bottom:14px}
+.draft p{margin:0 0 1em}
+.w-mine{font-weight:700;color:var(--mine)}
+.w-new{background:var(--new-bg);color:var(--new-fg);border-radius:2px;padding:0 1px}
+.w-flag{background:var(--flag-bg);color:var(--flag-fg);border-radius:2px;padding:0 2px;text-decoration:underline wavy}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);margin-bottom:14px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:18px 0}
+.stat{border-top:2px solid var(--line);padding-top:6px}
+.stat span{display:block;font-size:12px;color:var(--ink-2)}
+.stat strong{font-family:var(--f-mono);font-size:18px;font-variant-numeric:tabular-nums}
+.stat.bad{border-color:var(--flag-fg)} .stat.good{border-color:var(--ok)}
+ol.qa{padding-left:20px;margin:0;font-size:14px} ol.qa li{margin-bottom:6px} ol.qa .q{color:var(--ink-2);display:block;font-size:12.5px}
+/* 관측 기록지 */
+aside.log{background:var(--page);border:1px solid var(--line);border-radius:6px;padding:16px;font-size:13px;position:sticky;top:max(12px,env(safe-area-inset-top,0px));min-width:0}
+@media (max-width:860px){aside.log{position:static}}
+aside.log h4{margin:0 0 8px;font-size:12px;letter-spacing:.08em;color:var(--ink-2)}
+.slots{width:100%;border-collapse:collapse;font-family:var(--f-mono);font-size:12px;margin-bottom:12px}
+.slots td{padding:4px 4px;border-bottom:1px solid var(--line);vertical-align:top;word-break:break-all}
+.st{font-size:11px;padding:1px 6px;border-radius:3px;white-space:nowrap}
+.st-FILLED{background:var(--sky-soft);color:var(--sky)} .st-EMPTY{color:var(--ink-2);border:1px dashed var(--line)} .st-UNKNOWN{background:var(--new-bg);color:var(--new-fg)}
+.rule{font-family:var(--f-mono);font-size:12px;background:var(--paper);padding:8px;border-radius:4px;margin-bottom:12px;white-space:pre-wrap}
+.events{max-height:300px;overflow:auto;font-family:var(--f-mono);font-size:11.5px;display:flex;flex-direction:column;gap:6px}
+.events div{border-left:2px solid var(--line);padding-left:8px;white-space:pre-wrap;word-break:break-all}
+.events .drop{border-color:var(--flag-fg)} .events .fail{border-color:var(--warn)}
+.banner{padding:10px 14px;border-radius:4px;background:var(--new-bg);color:var(--new-fg);font-size:14px;margin-bottom:16px}
+details.hist{margin-top:28px;border-top:1px solid var(--line);padding-top:12px}
+details.hist summary{cursor:pointer;font-size:13px;color:var(--ink-2)}
+.histitem{padding:10px 0;border-bottom:1px solid var(--line);font-size:13px}
+@media (prefers-reduced-motion:no-preference){.page>*{animation:in .25s ease-out}@keyframes in{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}}
+</style>
+
+</head>
+<body>
+<header class="top">
+  <h1>내 안의 날씨 실험실 <span class="note">v1 · 2·3단계 로직 문서 기준 · <a href="/">v2로</a></span></h1>
+  <div class="modelbar" id="modelbar" aria-live="polite"></div>
+</header>
+<div class="wrap">
+  <main class="page" id="main"></main>
+  <aside class="log" id="log"></aside>
+</div>
+
+<script>
+/* ---------- 기본값 ---------- */
+const WEATHERS=['맑음','흐림','비','눈','바람','안개','갠 뒤 추움','해 나는데 비'];
+const ICON={
+ '맑음':'<circle cx="20" cy="20" r="7"/><path d="M20 5v4M20 31v4M5 20h4M31 20h4M9 9l3 3M28 28l3 3M9 31l3-3M28 12l3-3"/>',
+ '흐림':'<path d="M11 28h18a6 6 0 0 0 0-12 9 9 0 0 0-17 2 5 5 0 0 0-1 10z"/>',
+ '비':'<path d="M11 22h18a6 6 0 0 0 0-12 9 9 0 0 0-17 2 5 5 0 0 0-1 10z"/><path d="M14 27l-2 5M20 27l-2 5M26 27l-2 5"/>',
+ '눈':'<path d="M11 22h18a6 6 0 0 0 0-12 9 9 0 0 0-17 2 5 5 0 0 0-1 10z"/><circle cx="14" cy="29" r="1"/><circle cx="20" cy="32" r="1"/><circle cx="26" cy="29" r="1"/>',
+ '바람':'<path d="M6 15h20a4 4 0 1 0-4-4M6 21h26a4 4 0 1 1-4 4M6 27h12"/>',
+ '안개':'<path d="M7 14h26M10 20h22M7 26h26M12 32h16"/>',
+ '갠 뒤 추움':'<circle cx="15" cy="15" r="5"/><path d="M15 5v2M5 15h2M8 8l1.5 1.5"/><path d="M26 22v12M21 25l10 6M21 31l10-6"/>',
+ '해 나는데 비':'<circle cx="27" cy="12" r="5"/><path d="M27 3v2M36 12h-2M33 6l-1.5 1.5"/><path d="M8 26h14a5 5 0 0 0 0-10 7 7 0 0 0-13 2 4 4 0 0 0-1 8z"/><path d="M11 30l-1.5 4M17 30l-1.5 4"/>'
+};
+const Q2={TIME:[w=>`${w} 같았던 날, 하루만 떠올려 볼까요? 언제였어요?`,()=>'그 일이 있던 때는 언제쯤이었어요?'],
+          PLACE:[()=>'그날 있던 곳 한 군데만 떠올려 볼까요? 어디였어요?',()=>'그때 있던 곳은 어디였어요?']};
+const Q3={event:['그때 거기서 무슨 일이 있었어요?','그 자리에서 있었던 일 하나만 떠올려 볼까요?'],
+          object:['그 자리에 뭐가 있었어요?','가까이에 눈에 띄던 물건 하나만 떠올려 볼까요?'],
+          sense:['그때 들리거나 느껴지던 게 있었어요?','소리, 냄새, 온도처럼 느낀 것 하나만 떠올려 볼까요?'],
+          speech:['그 자리에서 누군가 한 말이 있었어요?','들었던 말 한마디만 떠올려 볼까요?'],
+          after:['그 일이 있고 나서 달라진 게 있었어요?','그 뒤로 하게 된 일이나 안 하게 된 일이 있어요?']};
+const S3NAME={event:'사건',object:'사물',sense:'감각',speech:'타인의 말',after:'그 후'};
+// 질문 모드: 기본 = 명세(사건·사물·감각), 확장 = 기획안의 '타인의 말'과 '그 후 달라진 점'을 더 묻는다
+const ORDER_BASE=['event','object','sense'], ORDER_EXT=['event','object','sense','speech','after'];
+let ORDER=ORDER_BASE;
+const MODE_NAME={base:'기본',ext:'확장'};
+
+let fatal='', showSettings=false;
+let S;
+/* 설정: 이 브라우저에만 저장 */
+const CFG={pass:'',extract:'',draft:'',models:[],mode:'base'};
+try{Object.assign(CFG,JSON.parse(localStorage.getItem('naenal-cfg')||'{}'))}catch(e){}
+function saveCfg(){try{localStorage.setItem('naenal-cfg',JSON.stringify({pass:CFG.pass,extract:CFG.extract,draft:CFG.draft,bad:CFG.bad||[],mode:CFG.mode}))}catch(e){}}
+const USAGE=[]; // {role,model,in,out,ms}
+function fresh(){
+  S={phase:'weather',weather:'',wxCustom:false,
+     s2:{TIME:{st:'EMPTY',asked:0,val:''},PLACE:{st:'EMPTY',asked:0,val:''},answers:[]},
+     sceneNo:1, discarded:[], scene:null,
+     s3:{event:{st:'EMPTY',asked:0,vals:[]},object:{st:'EMPTY',asked:0,vals:[]},sense:{st:'EMPTY',asked:0,vals:[]},speech:{st:'EMPTY',asked:0,vals:[]},after:{st:'EMPTY',asked:0,vals:[]},answers:[],started:false},
+     cur:null, rule:'날씨를 고르기 전', events:[], busy:false, paused:null,
+     removed:new Set(), extra:'', draft:null, drafts:[], t0:null, tDraftClick:null, waitMs:0, pauses:0};
+}
+fresh();
+
+// 대화형이 아닌 모델(임베딩, 재순위, 안전 필터, 이미지·음성 등)은 목록에서 뺀다
+const NOT_CHAT=/image|imagen|veo|live|native-audio|audio|tts|computer-use|robotics|aqa|embed|rerank|reward|guard|safety|shield|vision|-vl|vlm|clip|parse|ocr|whisper|tts|asr|riva|retriev|cosmos|detect|segment|sdxl|flux|stable-diffusion|diffusion|kosmos|paligemma|deplot|fuyu|neva|vila|nvclip|grounding|pii|content-safety|topic-control|jailbreak|calibration|starcoder|codestral|codegemma|coder|code-|math|bge|e5-|arctic-embed|nemoretriever|usdcode|reason-rm|-rm\b/i;
+// 판독은 빠르고 지시를 잘 따르는 모델, 초안은 한국어가 좋은 큰 모델 우선
+const EXTRACT_PREF=[/^gemini:gemini-3\.5-flash-lite/i,/^gemini:.*flash-lite/i,/qwen3/i,/llama-3\.3-70b-instruct/i,/qwen2\.5-72b/i,/llama-4.*instruct/i,/qwen/i,/mistral-(small|medium|large).*instruct/i,/gemma-3/i,/llama.*70b.*instruct/i];
+const DRAFT_PREF=[/^gemini:gemini-3\.5-flash$/i,/^gemini:gemini-3\.\d-flash$/i,/^gemini:.*flash(?!-lite)/i,/deepseek-v4-flash/i,/qwen3.*(235b|397b|480b|122b|max)/i,/deepseek-v[34]/i,/qwen3/i,/llama-4-maverick/i,/llama-3\.3-70b-instruct/i,/qwen/i,/mistral-large/i];
+function pickModel(prefs){for(const re of prefs){const m=CFG.models.find(x=>re.test(x)&&!/thinking|reason|r1|deepseek-v4|preview/i.test(x));if(m)return m}for(const re of prefs){const m=CFG.models.find(x=>re.test(x));if(m)return m}return CFG.models.find(m=>/instruct|chat/i.test(m))||CFG.models[0]||''}
+async function loadModels(){
+  try{
+    const r=await fetch('/api/models',{headers:{'x-passcode':encodeURIComponent(CFG.pass)}});
+    const j=await r.json();
+    if(!r.ok){fatal=j.message||'모델 목록을 불러오지 못했어요.';return render()}
+    fatal='';
+    const all=j.models||[];
+    CFG.models=all.filter(m=>!NOT_CHAT.test(m)&&!(CFG.bad||[]).includes(m));
+    const ok=m=>m&&CFG.models.includes(m);
+    if(!ok(CFG.extract))CFG.extract=(ok(j.defaults?.extract)&&j.defaults.extract)||pickModel(EXTRACT_PREF);
+    if(!ok(CFG.draft))CFG.draft=(ok(j.defaults?.draft)&&j.defaults.draft)||pickModel(DRAFT_PREF)||CFG.extract;
+    ev(`모델 ${all.length}개 중 대화형 ${CFG.models.length}개. 판독: ${CFG.extract} / 초안: ${CFG.draft}`);
+    saveCfg();
+  }catch(e){fatal='서버에 연결하지 못했어요. Vercel 배포 주소에서 열었는지 확인해 주세요.'}
+  render();
+}
+
+/* ---------- LLM 호출 (우리 서버 → NVIDIA) ---------- */
+// 초안: 서버가 쓰는 대로 흘려보내는 글을 받아 화면에 바로 보여 준다
+async function streamLLM(prompt,model,onText){
+  const t=performance.now();
+  try{
+    const ctl=new AbortController();let first=false;
+    const timer=setTimeout(()=>{if(!first)ctl.abort()},90000);
+    let r;
+    try{r=await fetch('/api/chat',{method:'POST',signal:ctl.signal,headers:{'Content-Type':'application/json','x-passcode':encodeURIComponent(CFG.pass)},
+      body:JSON.stringify({model,prompt,role:'draft',max_tokens:3000,temperature:0.4})});}
+    catch(e){clearTimeout(timer);throw {code:'no_response',message:`${model}이(가) 90초 동안 응답하지 않았어요. 무료 등급에서 붐비는 모델일 수 있으니 초안 모델을 바꿔 보세요.`}}
+    if(!r.ok){const j=await r.json().catch(()=>({}));const m=j.message||'';throw {code:/not found/i.test(m)?'model_unavailable':(j.error||('http_'+r.status)),message:m}}
+    const rd=r.body.getReader(),dec=new TextDecoder();let all='';
+    for(;;){let x;try{x=await rd.read()}catch(e){clearTimeout(timer);throw {code:'no_response',message:`${model}이(가) 90초 동안 글을 보내지 않았어요. 초안 모델을 바꿔 보세요.`}}const {value,done}=x;if(done)break;if(value&&value.length)first=true;all+=dec.decode(value,{stream:true});const k=all.indexOf('\u0000');onText(k<0?all:all.slice(0,k))}
+    clearTimeout(timer);all+=dec.decode();
+    const k=all.indexOf('\u0000');const text=k<0?all:all.slice(0,k);let meta={};
+    try{meta=JSON.parse(all.slice(k+1))}catch(e){}
+    USAGE.push({role:'draft',model,in:meta.usage?.prompt_tokens||0,out:meta.usage?.completion_tokens||0,ms:meta.ms||0});
+    if(meta.error&&!text.trim())throw {code:meta.error==='timeout'?'timeout':'empty',message:meta.error};
+    if(meta.error)ev(`초안이 중간에 끊겼어요 (${meta.error}). 받은 데까지 씁니다.`,'fail');
+    return text;
+  }finally{S.waitMs+=performance.now()-t}
+}
+async function callLLM(prompt,role,model,max_tokens){
+  const t=performance.now();
+  try{
+    const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json','x-passcode':encodeURIComponent(CFG.pass)},
+      body:JSON.stringify({model,prompt,role,max_tokens,temperature:role==='draft'?0.4:0})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){const m=j.message||'';throw {code:/not found for account|not found|404/i.test(m)?'model_unavailable':(j.error||('http_'+r.status)),message:m}}
+    USAGE.push({role,model,in:j.usage?.prompt_tokens||0,out:j.usage?.completion_tokens||0,ms:j.ms||0});
+    return j.text||'';
+  }finally{S.waitMs+=performance.now()-t}
+}
+function parseJSON(text){
+  let t=String(text).replace(/<think>[\s\S]*?<\/think>/g,'').trim();
+  const f=t.match(/```(?:json)?\s*([\s\S]*?)```/);if(f)t=f[1];
+  const a=t.indexOf('{'),b=t.lastIndexOf('}');
+  if(a<0||b<a)throw {code:'invalid_json',message:t.slice(0,200)};
+  try{return JSON.parse(t.slice(a,b+1))}catch(e){throw {code:'invalid_json',message:t.slice(0,200)}}
+}
+async function callJSON(prompt,role){
+  const model=role==='draft'?CFG.draft:CFG.extract;
+  return parseJSON(await callLLM(prompt,role,model,role==='draft'?3000:1200));
+}
+function swapModel(role){
+  const key=role==='draft'?'draft':'extract', bad=CFG[key];
+  CFG.bad=[...new Set([...(CFG.bad||[]),bad])];
+  CFG.models=CFG.models.filter(m=>m!==bad);
+  CFG[key]=pickModel(role==='draft'?DRAFT_PREF:EXTRACT_PREF);
+  saveCfg();
+  ev(`"${bad}"는 이 계정에서 쓸 수 없는 모델이에요 → "${CFG[key]||'없음'}"(으)로 바꿔서 다시 불러요`,'fail');
+  renderModelbar();
+  return !!CFG[key];
+}
+async function withRetry(label,fn){
+  let swaps=0;
+  for(let i=0;i<2;i++){
+    try{return await fn()}catch(e){
+      if(['bad_passcode','no_key'].includes(e.code)){fatal=e.message;render();throw e}
+      if(e.code==='model_unavailable'&&swaps<4&&swapModel('extract')){swaps++;i--;continue}
+      ev(`${label} 실패 (${e.code})${e.message?'\n모델 응답: '+String(e.message).slice(0,200):''}${i===0?'\n→ 자동 재시도':'\n→ 답을 읽지 못함 (횟수는 세지 않음)'}`,'fail');
+    }
+  }
+  return null;
+}
+function keep(v,src,label){
+  if(typeof v!=='string')return null;
+  const s=v.trim(); if(!s)return null;
+  if(src.includes(s))return s;
+  const sq=x=>x.replace(/\s+/g,'');
+  if(sq(src).includes(sq(s)))return s;
+  ev(`${label} "${s}" 버림: 원문에 그대로 없음`,'drop'); return null;
+}
+async function extract2(ans){
+  const p=`너는 글쓰기 앱의 답 판독기다. 사용자의 답 한 개에서 '때'와 '장소'를 가리키는 말만 원문 그대로 뽑는다. 답의 종류(모름, 되묻기, 끝내기)는 판단하지 않는다.
+- time: 장면이 일어난 하루, 한 순간, 또는 시기를 가리키는 말. 넓어도 인정한다. 예: "2019년 3월 2일", "2학년 가을 축제 날", "작년 겨울", "대학 시절", "어릴 때는 늘", "엄마랑 시장 갔던 날"
+- place: 장면이 일어난 장소. 넓어도 인정한다. 예: "할머니 댁 부엌", "학교 앞", "공대 비상계단", "서울", "시장"
+- 감정, 평가, 깨달음만 있으면 둘 다 null. 예: "너무 슬펐어요", "그때 사람은 혼자라는 걸 알았어요", "그냥 혼자 있었어요", "엄마가 울고 계셨어요"
+- "모르겠어요", "예를 들면요?", "그만할래요", 의미 없는 자모도 값이 없는 답이다.
+- 값은 반드시 답 안에 글자 그대로 있는 연속된 조각이어야 한다. 고치거나 요약하거나 보태지 않는다. 끝에 붙은 "이요", "에서" 같은 조사·어미는 떼도 된다.
+
+예시
+답: "작년 겨울 학교 앞에서 넘어졌어요" → {"time":"작년 겨울","place":"학교 앞"}
+답: "대학 시절이요" → {"time":"대학 시절","place":null}
+답: "너무 슬펐어요" → {"time":null,"place":null}
+
+답: """${ans}"""
+
+설명 없이 JSON 하나만 출력: {"time": 문자열 또는 null, "place": 문자열 또는 null}`;
+  const r=await withRetry('때·장소 판독',()=>callJSON(p,'extract'));
+  if(r===null)return {failed:true};
+  const out={time:keep(r?.time,ans,'time'),place:keep(r?.place,ans,'place')};
+  ev(`판독 ← "${ans}"\n→ ${JSON.stringify(r)}\n채택 ${JSON.stringify(out)}`);
+  return out;
+}
+async function extract3(ans,label){
+  const p=`너는 글쓰기 앱의 답 판독기다. 사용자의 답에서 아래 세 슬롯을 가리키는 말만 원문 그대로 뽑는다. 답의 종류(모름, 되묻기, 끝내기)는 판단하지 않는다.
+- event(사건): 그 자리에서 일어난 일. 내가 한 일, 남이 한 일, 벌어진 일 모두. 예: "버스를 놓쳤어요", "엄마가 괜찮다고 했어요", "우산 쓰고 엄마를 기다렸어요". 감정만 있는 말("너무 슬펐어요")은 사건이 아니다.
+- object(사물): 그 자리에 있던 물건. 사람은 제외. 예: "우산", "삼각김밥", "자판기"
+- sense(감각): 소리, 냄새, 온도, 촉감, 빛, 맛. "아무 소리도 안 났어요"처럼 없다는 말도 감각을 가리키면 포함. "없었어요"처럼 감각을 가리키는 말이 없으면 제외.${S.mode==='ext'?`
+- speech(타인의 말): 그 자리에서 다른 사람이 한 말. 따옴표가 없어도 "~라고 했어요"처럼 전한 말이면 포함. 예: "다들 괜찮다고 일어서라고 했어요", "엄마가 괜찮다고 했어요". 같은 조각이 사건이면서 타인의 말이어도 된다.
+- after(그 후): 그 일 뒤에 달라진 행동이나 상황. 예: "그 뒤로 계주는 안 나갔어요", "다음 해에는 맨 앞에서 뛰었어요". 감정, 깨달음, 교훈("덕분에 성장했어요")은 제외.`:''}
+- 감정은 슬롯이 아니다. "모르겠어요", "뭐라고요?", "그만할래요"는 값이 없는 답이다.
+- 각 값은 반드시 답 안에 글자 그대로 있는 연속된 조각이어야 한다. 고치거나 요약하거나 보태지 않는다. 한 조각이 사건이면서 사물을 품을 수 있다(사건 "우산 쓰고 엄마를 기다렸어요", 사물 "우산").
+
+답: """${ans}"""
+
+예시
+답: "우산 쓰고 엄마를 기다렸어요" → {"event":["우산 쓰고 엄마를 기다렸어요"],"object":["우산"],"sense":[]}
+답: "빗소리가 우산에 후두둑 떨어졌어요" → {"event":[],"object":[],"sense":["빗소리가 우산에 후두둑 떨어졌어요"]}
+답: "모르겠어요" → {"event":[],"object":[],"sense":[]}
+
+설명 없이 JSON 하나만 출력: {"event": [문자열...], "object": [문자열...], "sense": [문자열...]${S.mode==='ext'?', "speech": [문자열...], "after": [문자열...]':''}}  값이 없으면 빈 배열.`;
+  const r=await withRetry(label,()=>callJSON(p,'extract'));
+  const out={};
+  for(const k of ORDER){out[k]=(Array.isArray(r?.[k])?r[k]:[]).map(v=>keep(v,ans,k)).filter(Boolean)}
+  if(r===null)out.failed=true;
+  ev(`${label} ← "${ans}"\n→ ${JSON.stringify(r)}\n채택 ${JSON.stringify(out)}`);
+  return out;
+}
+
+/* ---------- 2단계 ---------- */
+function wxName(){return S.wxCustom?'그런 날씨':S.weather}
+function s2Next(){
+  const T=S.s2.TIME,P=S.s2.PLACE;
+  if(T.st==='FILLED'&&P.st==='FILLED'){S.rule='② 2행: 때·장소 모두 FILLED → 장면 카드';return toS3()}
+  if(T.st==='EMPTY'&&T.asked<2){T.asked++;S.cur={slot:'TIME',q:Q2.TIME[T.asked-1](wxName())};S.rule=`② 3행: TIME EMPTY, 물은 횟수 ${T.asked-1} → 때 ${T.asked}차`;return go('s2')}
+  if(T.st==='FILLED'&&P.st==='EMPTY'&&P.asked<2){P.asked++;S.cur={slot:'PLACE',q:Q2.PLACE[P.asked-1]()};S.rule=`② 4행: PLACE EMPTY, 물은 횟수 ${P.asked-1} → 장소 ${P.asked}차`;return go('s2')}
+  S.rule='② 5행: 그 밖 → 흐릿한 장면';go('blurry');
+}
+async function s2Answer(text){
+  S.s2.answers.push({q:S.cur.q,a:text});busy(true);
+  try{const r=await extract2(text);
+    if(r.failed)return retryLater(S.s2.answers,text);
+    if(r.time&&S.s2.TIME.st!=='FILLED'){S.s2.TIME.st='FILLED';S.s2.TIME.val=r.time}
+    if(r.place&&S.s2.PLACE.st!=='FILLED'){S.s2.PLACE.st='FILLED';S.s2.PLACE.val=r.place}
+  }catch(e){}
+  busy(false);s2Next();
+}
+// 호출이 실패하면 답을 기록하지 않고, 같은 질문에 쓴 답을 그대로 둔 채 다시 보내게 한다 (물은 횟수 그대로)
+function retryLater(list,text){
+  list.pop();S.retryText=text;S.sendErr=true;
+  S.rule+='\n→ 판독 실패: 횟수 세지 않고 같은 질문 유지';
+  busy(false);
+}
+function s2Unknown(){S.s2.answers.push({q:S.cur.q,a:'[기억이 안 나요]',btn:true});S.s2[S.cur.slot].st='UNKNOWN';ev(`[기억이 안 나요] → ${S.cur.slot} UNKNOWN`);s2Next()}
+function rechoose(){
+  S.discarded.push(...S.s2.answers);
+  S.s2={TIME:{st:'EMPTY',asked:0,val:''},PLACE:{st:'EMPTY',asked:0,val:''},answers:[]};
+  S.sceneNo=2;ev('다른 장면 떠올려 보기 → 2단계 처음부터 (앞 장면 답은 이 글에 안 씀)');s2Next();
+}
+
+/* ---------- 3단계 ---------- */
+async function toS3(){
+  S.scene={weather:S.weather,time:S.s2.TIME.val,place:S.s2.PLACE.val};
+  S.phase='s3';
+  if(!S.s3.started){
+    S.s3.started=true;busy(true);go('s3');
+    const src=S.s2.answers.filter(x=>!x.btn).map(x=>x.a).join('\n');
+    try{const r=await extract3(src,'시작 읽기(2단계 답)');fill3(r)}catch(e){}
+    busy(false);
+  }
+  s3Next();
+}
+function fill3(r){for(const k of ORDER){if(r[k].length){const s=S.s3[k];for(const v of r[k])if(!s.vals.includes(v))s.vals.push(v);s.st='FILLED'}}}
+function s3Next(){
+  const E=S.s3.event;
+  const dead=E.st!=='FILLED'&&(E.st==='UNKNOWN'||E.asked>=2);
+  if(!dead){for(const k of ORDER){const s=S.s3[k];if(s.st==='EMPTY'&&s.asked<2){s.asked++;S.cur={slot:k,q:Q3[k][s.asked-1]};S.rule=`② 2행: 물을 수 있는 첫 슬롯 = ${S3NAME[k]} → ${s.asked}차`;return go('s3')}}}
+  S.rule=dead?'사건을 못 채움 → 사물·감각 안 묻고 통과 판정':'② 3행: 물을 슬롯 없음 → 통과 판정';
+  judge();
+}
+function judge(){
+  const f=k=>S.s3[k].st==='FILLED';
+  if(f('event')&&(f('object')||f('sense'))){S.rule+='\n통과: 사건 + 사물/감각';go('s4')}
+  else{S.rule+='\n불통과: '+(f('event')?'사물·감각 없음':'사건 없음');go('short')}
+}
+async function s3Answer(text){
+  S.s3.answers.push({q:S.cur.q,a:text});busy(true);go('s3');
+  try{const r=await extract3(text,'꼬리질문 판독');if(r.failed)return retryLater(S.s3.answers,text);fill3(r)}catch(e){}
+  busy(false);s3Next();
+}
+function s3Unknown(){S.s3.answers.push({q:S.cur.q,a:'[기억이 안 나요]',btn:true});S.s3[S.cur.slot].st='UNKNOWN';ev(`[기억이 안 나요] → ${S3NAME[S.cur.slot]} UNKNOWN`);s3Next()}
+
+/* ---------- 쓰다 만 글 / 이어 쓰기 ---------- */
+function pause(stage){S.paused=stage;S.pauses++;ev(`쓰다 만 글로 저장 (${stage==='s2'?'2단계':'3단계'})`);go('paused')}
+function resume(){
+  if(S.paused==='s2'){for(const k of ['TIME','PLACE']){const s=S.s2[k];if(s.st==='UNKNOWN')s.st='EMPTY';s.asked=0}S.sceneNo=1;ev('이어 쓰기: 2단계 처음부터 (FILLED 유지, UNKNOWN·횟수 초기화, 다시 고르기 1번 복구)');S.paused=null;s2Next()}
+  else{for(const k of ORDER){const s=S.s3[k];if(s.st==='UNKNOWN')s.st='EMPTY';s.asked=0}ev('이어 쓰기: 3단계로 바로 (FILLED 유지, UNKNOWN·횟수 초기화)');S.paused=null;S.phase='s3';s3Next()}
+}
+
+/* ---------- 초안 ---------- */
+function allQA(){return [...S.s2.answers,...S.s3.answers]}
+function materials(){
+  const m=[{k:'언제',v:S.scene.time},{k:'어디',v:S.scene.place}];
+  for(const k of ORDER)for(const v of S.s3[k].vals)m.push({k:S3NAME[k],v});
+  return m;
+}
+async function makeDraft(again,model=CFG.draft){
+  if(!again)S.tDraftClick=Date.now();
+  const removed=[...S.removed];
+  const qa=allQA().filter(x=>!x.btn).map(x=>`Q: ${x.q}\nA: ${x.a}`).join('\n');
+  const slot=k=>S.s3[k].vals.filter(v=>!S.removed.has(v)).join(' / ')||'(없음)';
+  const p=`너는 '내 안의 날씨' 앱의 초안 엮기 담당이다. 사용자가 질문에 답한 말만으로 짧은 글 한 편을 엮는다. AI는 대신 쓰지 않는다.
+
+[규칙]
+1. 사용자의 답에 있는 단어만 쓴다. 단어를 더 좋은 단어로 바꾸지 않는다.
+2. 바꿔도 되는 것: 해요체 어미를 해라체로(안 났어요→안 났다, 좋았어요→좋았다), 조사, 문장을 잇는 최소한의 말(나는, 그리고, 거기서).
+3. 금지: 비유, 꾸밈말 보태기, 사용자가 하지 않은 감정 이름 붙이기(외로웠다, 쓸쓸했다 등), 교훈이나 깨달음으로 마무리하기, 답에 없는 사람·사물·장소·고유명사·숫자 보태기.
+4. 사용자가 직접 말한 감정어는 그 말 그대로만 쓸 수 있다.
+5. 질문 문구의 말은 글에 쓰지 않는다. 질문은 답의 맥락만 알려 준다.
+6. "모르겠어요", "뭐라고요?", "그만할래요" 같은 진행용 답과 의미 없는 입력은 쓰지 않는다.
+7. 1인칭 과거형. 답 순서를 대체로 따르되 한 장면으로 이어지게 놓는다. 최대 1,600자. 재료가 적으면 짧게 끝낸다. 길이를 늘리려고 말을 보태지 않는다.
+8. '빼기로 한 조각'은 글에 쓰지 않는다.
+9. 날씨는 사용자가 고른 그날의 실제 날씨다. 넣는다면 고른 이름 그대로만 쓴다.
+10. 제목은 사용자의 말에서 그대로 따온 짧은 구절로 한다.
+
+[대비 예]
+답: 대학교 2학년 가을이요 / 공대 건물 비상계단이요 / 밥 먹었어요 / 삼각김밥이요. 학식을 혼자 먹기 싫어서. / 아무 소리도 안 났어요. 그게 좋았어요.
+좋은 초안: 2학년 가을이었다. 나는 학식을 혼자 먹기 싫어서 공대 건물 비상계단에서 삼각김밥을 먹었다. 거기서는 아무 소리도 안 났다. 그게 좋았다.
+나쁜 초안: 외로움이 깊던 가을, 그곳의 고요함은 지친 내 마음을 감싸주었다. (외로움, 고요함, 지친, 감싸다는 사용자가 하지 않은 말)
+
+[이번 재료]
+날씨: ${S.weather}
+언제: ${S.scene.time}
+어디: ${S.scene.place}
+사건: ${slot('event')}
+사물: ${slot('object')}
+감각: ${slot('sense')}${S.mode==='ext'?`
+타인의 말: ${slot('speech')}
+그 후: ${slot('after')}`:''}
+빼기로 한 조각: ${removed.join(' / ')||'(없음)'}
+덧붙인 말: ${S.extra||'(없음)'}
+
+[질문과 답, 순서대로]
+${qa}${S.extra?`\nA(재료 확인에서 덧붙임): ${S.extra}`:''}
+
+JSON 하나만 출력: {"title": 문자열, "body": 문자열}  body의 문단 사이는 \\n\\n.`;
+  busy(true);go(S.drafts.length?'draft':'drafting');
+  const t=performance.now();
+  try{
+    let raw;const tried=new Set();
+    for(let k=0;;k++){
+      try{S.streamText='';raw=await streamLLM(p,model,txt=>{S.streamText=txt;const el=document.getElementById('streamOut');if(el)el.textContent=txt.replace(/^[\s\S]*?"body"\s*:\s*"/,'').replace(/\\n/g,'\n').replace(/"\s*}\s*`*\s*$/,'')||'생각하는 중…'});break}
+      catch(e){
+        if(e.code==='model_unavailable'&&k<4&&model===CFG.draft&&swapModel('draft')){model=CFG.draft;continue}
+        // 한도 초과: 이번 초안만 다음 추천 모델로 넘김 (설정은 그대로, 쓸 수 없는 모델로 치지 않음)
+        if(e.code==='rate_limited'&&k<3){
+          tried.add(model);
+          const alt=DRAFT_PREF.concat(EXTRACT_PREF).map(re=>CFG.models.find(m=>re.test(m)&&!tried.has(m)&&!/thinking|reason|r1|preview/i.test(m))).find(Boolean);
+          if(alt){ev(`"${model}" 무료 한도 초과 → 이번 초안은 "${alt}"로 엮어요`,'fail');model=alt;continue}
+        }
+        throw e}
+    }
+    const r=parseJSON(raw);
+    const u=USAGE[USAGE.length-1]||{};
+    S.draft={title:String(r.title||''),body:String(r.body||''),at:new Date().toISOString(),model,tin:u.in,tout:u.out,ms:u.ms};
+    S.drafts.unshift(S.draft);
+    ev(`초안 생성 (${model}) ${((performance.now()-t)/1000).toFixed(1)}초, 입력 ${u.in} / 출력 ${u.out} 토큰`);
+    saveRun();go('draft');
+  }catch(e){
+    if(['bad_passcode','no_key'].includes(e.code))fatal=e.message;
+    ev(`초안 생성 실패 (${e.code}) ${e.code==='rate_limited'?'무료 한도 초과. 1분 뒤 다시 시도하거나, 일일 한도면 한국 시간 오후 4~5시(미국 태평양 자정)에 초기화돼요.':(e.message||'')}`,'fail');S.draftErr=e.code+(e.message?': '+e.message.slice(0,120):'');go(S.drafts.length?'draft':'s4');
+  }finally{busy(false)}
+}
+
+/* ---------- 출처 확인 (대략) ---------- */
+const GLUE=new Set(['나는','나도','나','내가','내','그','그때','그때는','그날','그날은','거기','거기서','거기서는','거기에','그리고','그런데','그래서','그게','그것','것','수','또','다시','이었다','였다','했다','있었다','없었다','있다','없다','이다','그곳','그곳에서']);
+const NUMW=/^(한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|스무|서른)\s?(번|살|시|개|명|잔|병|시간|달|해|권|장|대)/;
+function analyse(body){
+  const src=[...allQA().filter(x=>!x.btn).map(x=>x.a),S.extra,S.weather].join(' ');
+  const flat=src.replace(/\s/g,'');
+  let words=0,mine=0,neu=0,news=[],flags=[];
+  const html=body.split(/\n{2,}/).map(par=>'<p>'+par.split(/(\s+)/).map(tok=>{
+    if(/^\s+$/.test(tok)||!tok)return tok;
+    const core=tok.replace(/[^가-힣A-Za-z0-9]/g,'');
+    if(!core)return esc(tok);
+    words++;
+    const digits=core.match(/\d+/g)||[];
+    const nw=core.match(NUMW);
+    if(digits.some(d=>!src.includes(d))||(nw&&!flat.includes(nw[0].replace(/\s/g,'')))){flags.push(core);return `<span class="w-flag" title="답에 없는 숫자">${esc(tok)}</span>`}
+    if(GLUE.has(core)||core.length===1){neu++;return esc(tok)}
+    const stem=core.slice(0,2);
+    if(flat.includes(stem)){mine++;return `<span class="w-mine">${esc(tok)}</span>`}
+    news.push(core);return `<span class="w-new" title="답에서 찾지 못한 말">${esc(tok)}</span>`;
+  }).join('')+'</p>').join('');
+  return {html,words,mine,neu,news,flags,chars:body.replace(/\s/g,'').length};
+}
+
+/* ---------- 실험 기록 ---------- */
+function runRecord(d=S.draft){
+  const a=analyse(d.body);
+  const mins=S.t0&&S.tDraftClick?((S.tDraftClick-S.t0-0)/60000):null;
+  const sum=k=>USAGE.reduce((n,x)=>n+(x[k]||0),0);
+  return {at:d.at,weather:S.weather,scene:S.scene,model:d.model,extractModel:CFG.extract,tin:d.tin,tout:d.tout,
+    extractIn:USAGE.filter(x=>x.role!=='draft').reduce((n,x)=>n+x.in,0),extractOut:USAGE.filter(x=>x.role!=='draft').reduce((n,x)=>n+x.out,0),extractCalls:USAGE.filter(x=>x.role!=='draft').length,
+    q2:S.s2.answers.length,q3:S.s3.answers.length,mins,mode:S.mode||'base',chars:a.chars,
+    slots:Object.fromEntries(ORDER.map(k=>[k,S.s3[k].vals])),
+    qa:allQA(),title:d.title,body:d.body,
+    newWords:a.news,flags:a.flags,newRatio:a.words?(a.news.length/a.words):0};
+}
+function loadRuns(){try{return JSON.parse(localStorage.getItem('naenal-runs')||'[]')}catch(e){return[]}}
+function saveRun(){try{const r=loadRuns();r.unshift(runRecord());localStorage.setItem('naenal-runs',JSON.stringify(r.slice(0,30)))}catch(e){}}
+function recordText(r){
+  return `## ${r.title||'(제목 없음)'}
+- 날씨: ${r.weather} / 언제: ${r.scene.time} / 어디: ${r.scene.place}
+- 질문 수: 2단계 ${r.q2}, 3단계 ${r.q3} / 초안까지 ${r.mins!=null?r.mins.toFixed(1)+'분':'-'}
+- 초안 모델: ${r.model||'-'} (입력 ${r.tin??'-'} / 출력 ${r.tout??'-'} 토큰)
+- 판독 모델: ${r.extractModel||'-'} (${r.extractCalls??'-'}회, 입력 ${r.extractIn??'-'} / 출력 ${r.extractOut??'-'} 토큰)
+- 질문 모드: ${MODE_NAME[r.mode||'base']} / 초안 ${r.chars??'-'}자
+- 슬롯: ${Object.entries(r.slots).map(([k,v])=>`${S3NAME[k]} [${v.join(', ')}]`).join(' ')}
+- 답에서 찾지 못한 말(${Math.round(r.newRatio*100)}%): ${r.newWords.join(', ')||'없음'}
+- 답에 없는 숫자: ${r.flags.join(', ')||'없음'}
+
+### 질문과 답
+${r.qa.map(x=>`- Q. ${x.q}\n  A. ${x.a}`).join('\n')}
+
+### 초안
+${r.body}
+`;
+}
+async function copyText(t,btn){
+  try{await navigator.clipboard.writeText(t);btn.textContent='복사했어요'}
+  catch(e){const ta=document.getElementById('copyfallback');ta.hidden=false;ta.value=t;ta.select();btn.textContent='아래 칸에서 직접 복사하세요'}
+}
+
+/* ---------- 렌더 ---------- */
+const $=s=>document.querySelector(s);
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function ev(t,cls=''){S.events.unshift({t,cls,at:new Date().toLocaleTimeString('ko-KR',{hour12:false})});renderLog()}
+function busy(b){S.busy=b;render()}
+function go(p){S.phase=p;render();const i=$('#ans');if(i)i.focus()}
+function sceneCard(){return `<dl class="scene"><dt>날씨</dt><dd>${esc(S.scene.weather)}</dd><dt>언제</dt><dd>${esc(S.scene.time)}</dd><dt>어디</dt><dd>${esc(S.scene.place)}</dd></dl>`}
+function answerBox(btns){return `
+  ${S.sendErr?'<p class="banner" style="margin:0 0 10px">답을 읽지 못했어요. 연결 문제라 횟수에는 넣지 않았어요. 다시 보내 주세요.</p>':''}
+  <textarea id="ans" rows="3" maxlength="500" placeholder="떠오르는 대로 적어 주세요" ${S.busy?'disabled':''}>${esc(S.retryText||'')}</textarea>
+  <div class="row">
+    <button class="primary" id="b-next" ${S.busy?'disabled':''}>다음</button>
+    <button id="b-unk" ${S.busy?'disabled':''}>기억이 안 나요</button>
+    <button class="quiet" id="b-done" ${S.busy?'disabled':''}>이제 됐어요</button>
+  </div>${S.busy?'<p class="busy">답을 읽는 중…</p>':''}`}
+
+function render(){
+  const m=$('#main');let h='';
+  if(fatal)h+=`<div class="banner">${esc(fatal)}</div>`;
+  h+=settingsHTML();
+  const P=S.phase;
+  if(P==='weather'){
+    h+=`<div class="eyebrow">1단계 · 날씨 고르기</div><p class="bigq">기억하고 싶은 날의 날씨는 어땠나요?</p>
+    <div class="weathers">${WEATHERS.map(w=>`<button class="wx" data-wx="${w}"><svg viewBox="0 0 40 40">${ICON[w]}</svg>${w}</button>`).join('')}</div>
+    <div class="row"><input type="text" id="wxc" placeholder="직접 쓰기 (예: 황사)" style="flex:1;min-width:0"><button id="b-wxc">이 날씨로</button></div>
+    <p class="note" style="margin-top:20px">답 판독과 초안은 NVIDIA 무료 API로 처리돼요. 실험용이라 참가자의 실제 기억 대신 팀원 본인 이야기나 지어낸 예시로 써 주세요.</p>`;
+    h+=histHTML();
+  }
+  if(P==='s2'){
+    const T=S.s2.TIME,Pl=S.s2.PLACE;
+    h+=`<div class="eyebrow">2단계 · 장면 좁히기 ${S.sceneNo===2?'· 다시 고른 장면':''}</div>
+    <div class="chips" style="margin-top:10px"><span class="chip"><b>날씨</b>${esc(S.weather)}</span>${T.st==='FILLED'?`<span class="chip"><b>언제</b>${esc(T.val)}</span>`:''}${Pl.st==='FILLED'?`<span class="chip"><b>어디</b>${esc(Pl.val)}</span>`:''}</div>
+    <p class="bigq">${esc(S.cur.q)}</p>${answerBox()}`;
+  }
+  if(P==='blurry'){
+    const two=S.sceneNo===1;
+    h+=`<div class="eyebrow">2단계 · 흐릿한 장면</div><p class="bigq">이 장면은 아직 흐릿하네요.</p>
+    <div class="row">${two?'<button class="primary" id="b-re">다른 장면 떠올려 보기</button>':''}<button id="b-later">다음에 이어 쓰기</button></div>`;
+  }
+  if(P==='s3'){
+    h+=`<div class="eyebrow">3단계 · 꼬리질문</div><div style="margin-top:10px">${sceneCard()}</div><div class="chat">`;
+    for(const x of S.s3.answers)h+=`<div class="b ai">${esc(x.q)}</div><div class="b me ${x.btn?'btn':''}">${esc(x.a)}</div>`;
+    if(S.cur&&S.cur.slot in S3NAME&&!S.busy)h+=`<div class="b ai">${esc(S.cur.q)}</div>`;
+    h+=`</div>`;
+    h+=S.cur&&S.cur.slot in S3NAME?answerBox():(S.busy?'<p class="busy">2단계 답에서 나머지 재료를 먼저 찾는 중…</p>':'');
+  }
+  if(P==='short'){
+    h+=`<div class="eyebrow">3단계 · 통과 판정</div><div style="margin-top:10px">${sceneCard()}</div><p class="bigq">재료가 조금 부족해요.</p><div class="row"><button class="primary" id="b-later3">다음에 이어 쓰기</button></div>`;
+  }
+  if(P==='paused'){
+    h+=`<div class="eyebrow">책꽂이 · 쓰다 만 글</div><p class="bigq">쓰다 만 글로 남겨 두었어요.</p>
+    <p class="note">${S.paused==='s2'?'다시 열면 날씨는 그대로, 2단계 처음부터 시작해요. 채운 슬롯은 남고, 모른다고 한 슬롯과 물은 횟수는 처음으로 돌아가요.':'다시 열면 장면 카드를 보여주고 3단계로 바로 들어가요. 빈 슬롯부터 다시 물어요.'}</p>
+    <div class="row"><button class="primary" id="b-resume">이어 쓰기</button><button class="quiet" id="b-reset">처음부터 새로 쓰기</button></div>`;
+  }
+  if(P==='s4'){
+    h+=`<div class="eyebrow">4단계 · 재료 확인</div><h2 style="margin-top:8px">모은 말을 확인해 주세요</h2><p class="note">사용자의 말 그대로예요. 빼고 싶은 조각은 ×를 누르세요.</p>
+    <div class="cards">${materials().map(x=>`<span class="card ${S.removed.has(x.v)?'off':''}"><small>${x.k}</small>${esc(x.v)}${x.k==='언제'||x.k==='어디'?'':`<button data-rm="${esc(x.v)}" aria-label="빼기">${S.removed.has(x.v)?'되살리기':'×'}</button>`}</span>`).join('')}</div>
+    <label class="note" for="extra">더 넣고 싶은 말 (한 칸)</label>
+    <input type="text" id="extra" value="${esc(S.extra)}" placeholder="비워 둬도 돼요">
+    <h3>질문과 답 전부</h3><ol class="qa">${allQA().map(x=>`<li><span class="q">${esc(x.q)}</span>${esc(x.a)}</li>`).join('')}</ol>
+    ${S.draftErr?`<p class="banner" style="margin-top:16px">초안을 만들지 못했어요 (${S.draftErr}). 다시 눌러 보세요.</p>`:''}
+    <div class="row" style="margin-top:20px"><button class="primary" id="b-draft">초안 엮기</button></div>`;
+  }
+  if(P==='drafting'){h+=`<div class="eyebrow">초안 · ${esc(CFG.draft)}</div><p class="bigq">답을 엮는 중이에요…</p><pre id="streamOut" class="draft" style="white-space:pre-wrap;font:inherit;font-family:var(--f-display);color:var(--ink-2);min-height:4em">생각하는 중…</pre><p class="note">모델이 먼저 생각한 뒤 글을 쓰기 시작해요. 대기 시간은 소요 시간에서 빠져요.</p>`}
+  if(P==='draft'){
+    const r=runRecord(S.drafts[S.drafts.length-1]);
+    h+=`<div class="eyebrow">초안과 출처 확인</div>
+    <div class="legend" style="margin-top:10px"><span><span class="w-mine">굵게</span> 답에서 온 말</span><span><span class="w-new">노랑</span> 답에서 찾지 못한 말</span><span><span class="w-flag">빨강</span> 답에 없는 숫자</span><span>표시는 어간 앞 두 글자 비교라 대략적이에요</span></div>
+    <div class="stats">
+      <div class="stat ${r.mins!=null&&r.mins<=7?'good':''}"><span>질문 시작 → 초안 요청</span><strong>${r.mins!=null?r.mins.toFixed(1)+'분':'-'}</strong></div>
+      <div class="stat"><span>질문 수 (2단계+3단계)</span><strong>${r.q2}+${r.q3}</strong></div>
+      <div class="stat"><span>판독 토큰 (${r.extractCalls}회)</span><strong>${r.extractIn}/${r.extractOut}</strong></div>
+    </div>
+    ${S.draftErr?`<p class="banner">초안을 만들지 못했어요 (${esc(S.draftErr)}).</p>`:''}`;
+    S.drafts.forEach((d,i)=>{
+      const a=analyse(d.body);const ratio=a.words?Math.round(a.news.length/a.words*100):0;
+      h+=`<section style="border-top:1px solid var(--line);padding-top:18px;margin-top:18px">
+      <div class="eyebrow">${i===0?'최근 초안':'이전 초안'} · ${esc(d.model)}</div>
+      <article class="draft" style="margin-top:10px"><h2>${esc(d.title)}</h2>${a.html}</article>
+      <div class="stats">
+        <div class="stat"><span>글자 수</span><strong>${a.chars}</strong></div>
+        <div class="stat ${ratio>15?'bad':'good'}"><span>답에 없는 말</span><strong>${ratio}%</strong></div>
+        <div class="stat ${a.flags.length?'bad':'good'}"><span>답에 없는 숫자</span><strong>${a.flags.length}</strong></div>
+        <div class="stat"><span>토큰 입력/출력</span><strong>${d.tin??'-'}/${d.tout??'-'}</strong></div>
+        <div class="stat"><span>생성 시간</span><strong>${d.ms?(d.ms/1000).toFixed(1)+'초':'-'}</strong></div>
+      </div>
+      ${a.news.length?`<p class="note">답에서 찾지 못한 말: ${a.news.map(esc).join(', ')}</p>`:''}
+      <div class="row"><button class="quiet" data-dcopy="${i}">이 초안 기록 복사</button></div></section>`;
+    });
+    h+=`<h3>다른 모델로 같은 재료 엮어 보기</h3>
+    <div class="row"><input type="text" id="cmpModel" list="modelList" value="${esc(CFG.draft)}" style="flex:1;min-width:0"><button id="b-cmp" ${S.busy?'disabled':''}>이 모델로 엮기</button></div>
+    ${S.busy?'<p class="busy">엮는 중…</p><pre id="streamOut" style="white-space:pre-wrap;font:inherit;color:var(--ink-2)">생각하는 중…</pre>':''}
+    <h3>원래 답</h3><ol class="qa">${allQA().map(x=>`<li><span class="q">${esc(x.q)}</span>${esc(x.a)}</li>`).join('')}</ol>
+    <div class="row" style="margin-top:20px"><button class="primary" id="b-copy">초안 전부 기록 복사</button><button class="quiet" id="b-reset">새 글 쓰기</button></div>
+    <textarea id="copyfallback" rows="6" hidden></textarea>`;
+    h+=histHTML();
+  }
+  m.innerHTML=h;bind();renderLog();
+}
+function settingsHTML(){
+  const ready=CFG.extract&&CFG.models.length&&!fatal;
+  if(ready&&!showSettings)return '';
+  return `<section class="settings" id="settingsPanel" aria-label="설정">
+  <div class="settings-head"><h2>설정</h2>${ready?'<button class="quiet" id="b-close-settings">닫기</button>':''}</div>
+  <div style="display:grid;gap:10px;margin-top:8px">
+    <div class="row" style="margin:0"><input type="text" id="pass" placeholder="팀 암호" value="${esc(CFG.pass)}" autocomplete="off" style="flex:1;min-width:0"><button id="b-pass">연결하고 모델 불러오기</button></div>
+    <label class="note">판독 모델 (가볍고 빠른 모델)<input type="text" id="mExtract" list="modelList" value="${esc(CFG.extract)}"></label>
+    <label class="note">초안 모델<input type="text" id="mDraft" list="modelList" value="${esc(CFG.draft)}"></label>
+    <fieldset style="border:0;padding:0;margin:0"><legend class="note">질문 모드 (새 글부터 적용)</legend>
+      <div class="row" style="margin:4px 0 0">
+        <label class="card" style="cursor:pointer"><input type="radio" name="qmode" id="mode-base" value="base" ${CFG.mode!=='ext'?'checked':''}> 기본: 사건·사물·감각 (명세)</label>
+        <label class="card" style="cursor:pointer"><input type="radio" name="qmode" id="mode-ext" value="ext" ${CFG.mode==='ext'?'checked':''}> 확장: + 타인의 말 · 그 후</label>
+      </div></fieldset>
+    <datalist id="modelList">${CFG.models.map(m=>`<option value="${esc(m)}">`).join('')}</datalist>
+    <p class="note" style="margin:0">${CFG.models.length?`모델 ${CFG.models.length}개를 불러왔어요. 칸을 비우고 입력하면 목록에서 고를 수 있어요.`:'암호를 넣고 연결하면 쓸 수 있는 모델 목록을 불러와요.'}</p>
+  </div></section>`;
+}
+function histHTML(){
+  const runs=loadRuns();if(!runs.length)return'';
+  return `<details class="hist"><summary>이 브라우저에 남은 실험 ${runs.length}건</summary>${runs.map((r,i)=>`<div class="histitem"><span class="chip"><b>${MODE_NAME[r.mode||'base']}</b>${r.chars??(r.body||'').replace(/\s/g,'').length}자 · 질문 ${r.q2}+${r.q3}</span> <strong>${esc(r.title||'(제목 없음)')}</strong> · ${esc(r.weather)} · ${esc(r.scene?.time||'')} / ${esc(r.scene?.place||'')} · 답에 없는 말 ${Math.round((r.newRatio||0)*100)}% <button class="quiet" data-hcopy="${i}">복사</button><div class="note" style="margin-top:4px">${esc(r.body.slice(0,120))}${r.body.length>120?'…':''}</div></div>`).join('')}<div class="row"><button class="quiet" id="b-hall">전체 복사</button><button class="quiet" id="b-hclear">기록 지우기</button></div><textarea id="copyfallback" rows="6" hidden></textarea></details>`;
+}
+function bind(){
+  document.querySelectorAll('[data-wx]').forEach(b=>b.onclick=()=>startWx(b.dataset.wx,false));
+  const on=(id,f)=>{const e=document.getElementById(id);if(e)e.onclick=f};
+  on('b-wxc',()=>{const v=$('#wxc').value.trim();if(v)startWx(v,true)});
+  const ans=$('#ans');
+  if(ans)ans.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('#b-next').click()}};
+  on('b-next',()=>{const v=($('#ans').value||'').trim();S.sendErr=false;S.retryText='';if(!v||fatal||!CFG.extract)return;S.phase==='s2'?s2Answer(v):s3Answer(v)});
+  on('b-unk',()=>S.phase==='s2'?s2Unknown():s3Unknown());
+  on('b-done',()=>{if(S.phase==='s2'){S.rule='② 1행: [이제 됐어요] → 끝';pause('s2')}else{S.rule='② 1행: [이제 됐어요] → 통과 판정';judge()}});
+  on('b-re',rechoose);
+  on('b-later',()=>pause('s2'));
+  on('b-later3',()=>pause('s3'));
+  on('b-resume',resume);
+  on('b-reset',()=>{fresh();USAGE.length=0;render()});
+  document.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{const v=b.dataset.rm;S.removed.has(v)?S.removed.delete(v):S.removed.add(v);S.extra=$('#extra').value;render()});
+  const ex=$('#extra');if(ex)ex.oninput=()=>S.extra=ex.value;
+  on('b-draft',()=>{S.draftErr=null;makeDraft(false)});
+  on('b-cmp',()=>{const v=$('#cmpModel').value.trim();if(v){S.draftErr=null;makeDraft(true,v)}});
+  on('b-copy',e=>copyText(S.drafts.map(d=>recordText(runRecord(d))).join('\n---\n\n'),e.currentTarget));
+  document.querySelectorAll('[data-dcopy]').forEach(b=>b.onclick=()=>copyText(recordText(runRecord(S.drafts[+b.dataset.dcopy])),b));
+  on('b-pass',()=>{CFG.pass=$('#pass').value;saveCfg();loadModels()});
+  on('b-close-settings',()=>{showSettings=false;render()});
+  const me=$('#mExtract'),md=$('#mDraft');
+  if(me)me.onchange=()=>{CFG.extract=me.value.trim();saveCfg();renderLog()};
+  document.querySelectorAll('input[name=qmode]').forEach(x=>x.onchange=()=>{CFG.mode=x.value;saveCfg();renderModelbar()});
+  if(md)md.onchange=()=>{CFG.draft=md.value.trim();saveCfg();renderLog()};
+  document.querySelectorAll('[data-hcopy]').forEach(b=>b.onclick=()=>copyText(recordText(loadRuns()[+b.dataset.hcopy]),b));
+  on('b-hall',e=>copyText(loadRuns().map(recordText).join('\n---\n\n'),e.currentTarget));
+  on('b-hclear',()=>{try{localStorage.removeItem('naenal-runs')}catch(e){}render()});
+}
+function startWx(w,custom){S.mode=CFG.mode==='ext'?'ext':'base';ORDER=S.mode==='ext'?ORDER_EXT:ORDER_BASE;ev(`질문 모드: ${MODE_NAME[S.mode]}`);S.weather=w;S.wxCustom=custom;S.t0=Date.now();ev(`날씨: ${w}${custom?' (직접 쓰기 → 질문에는 "그런 날씨")':''}`);s2Next()}
+function renderModelbar(){
+  const el=$('#modelbar');if(!el)return;
+  const on=!!CFG.models.length&&!fatal;
+  const b=(label,m)=>`<button class="mb ${on&&m?'':'off'}" data-open-settings title="${esc(m||'미정')}"><i class="dot"></i><span>${label}</span><code>${esc(m||'연결 전')}</code></button>`;
+  el.innerHTML=`<button class="mb" data-open-settings><i class="dot" style="background:var(--sky)"></i><span>질문</span><code>${MODE_NAME[S&&S.mode&&S.phase!=='weather'?S.mode:CFG.mode]||'기본'}</code></button>`+b('판독',CFG.extract)+b('초안',CFG.draft)+`<button class="setbtn ${showSettings?'on':''}" id="b-settings" aria-expanded="${showSettings}"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2.2M10 15.3v2.2M2.5 10h2.2M15.3 10h2.2M4.7 4.7l1.6 1.6M13.7 13.7l1.6 1.6M4.7 15.3l1.6-1.6M13.7 6.3l1.6-1.6"/></svg>설정</button>`;
+  const open=()=>{showSettings=!showSettings;render();if(showSettings){const d=$('#settingsPanel');if(d)d.scrollIntoView({block:'start',behavior:'smooth'})}};
+  el.querySelectorAll('[data-open-settings]').forEach(x=>x.onclick=()=>{showSettings=false;open()});
+  $('#b-settings').onclick=open;
+}
+function renderLog(){
+  renderModelbar();
+  const st=s=>`<span class="st st-${s}">${s}</span>`;
+  let h=`<h4>로직 상태</h4><table class="slots"><tbody>
+  <tr><td colspan="4" style="color:var(--ink-2)">2단계 · 장면 ${S.sceneNo}/2</td></tr>
+  ${['TIME','PLACE'].map(k=>`<tr><td>${k}</td><td>${st(S.s2[k].st)}</td><td>${S.s2[k].asked}/2</td><td>${esc(S.s2[k].val)}</td></tr>`).join('')}
+  <tr><td colspan="4" style="color:var(--ink-2);padding-top:10px">3단계</td></tr>
+  ${ORDER.map(k=>`<tr><td>${k}</td><td>${st(S.s3[k].st)}</td><td>${S.s3[k].asked}/2</td><td>${esc(S.s3[k].vals.join(' · '))}</td></tr>`).join('')}
+  </tbody></table>
+  <h4>토큰 (이번 글)</h4><div class="rule">판독 ${USAGE.filter(x=>x.role!=='draft').length}회 · 입력 ${USAGE.filter(x=>x.role!=='draft').reduce((n,x)=>n+x.in,0)} / 출력 ${USAGE.filter(x=>x.role!=='draft').reduce((n,x)=>n+x.out,0)}
+초안 ${USAGE.filter(x=>x.role==='draft').length}회 · 입력 ${USAGE.filter(x=>x.role==='draft').reduce((n,x)=>n+x.in,0)} / 출력 ${USAGE.filter(x=>x.role==='draft').reduce((n,x)=>n+x.out,0)}</div>
+  <h4>방금 적용된 규칙</h4><div class="rule">${esc(S.rule)}</div>
+  <h4>판독 기록</h4><div class="events">${S.events.map(e=>`<div class="${e.cls}">${e.at}  ${esc(e.t)}</div>`).join('')||'<div>아직 없음</div>'}</div>`;
+  $('#log').innerHTML=h;
+}
+render();
+loadModels();
+</script>
+</body>
+</html>
