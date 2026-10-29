@@ -35,6 +35,13 @@ header.top p{margin:0;color:var(--ink-2);font-size:13px}
 .modelbar{display:flex;gap:8px;flex-wrap:wrap}
 .mb{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;padding:4px 10px;border:1px solid var(--line);border-radius:99px;background:var(--page);max-width:100%;cursor:pointer}
 .mb span{color:var(--ink-2)} .mb code{font-family:var(--f-mono);font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46vw}
+.setbtn{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:5px 14px;border-radius:99px;border:1px solid var(--sky);background:var(--page);color:var(--sky)}
+.setbtn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}
+.setbtn.on,.setbtn:hover{background:var(--sky);color:var(--page)}
+.settings{margin-bottom:22px;padding:16px 18px;border:1px solid var(--sky);border-radius:6px;background:var(--sky-soft)}
+.settings-head{display:flex;justify-content:space-between;align-items:center}
+.settings-head h2{font-size:17px;margin:0}
+.settings input{background:var(--page)}
 .mb .dot{width:7px;height:7px;border-radius:50%;background:var(--ok)} .mb.off .dot{background:var(--warn)}
 .page{background:var(--page);border:1px solid var(--line);border-radius:6px;padding:28px clamp(18px,4vw,40px);min-height:520px;min-width:0}
 .eyebrow{font-size:12px;letter-spacing:.08em;color:var(--ink-2);font-weight:600}
@@ -134,7 +141,7 @@ const Q3={event:['그때 거기서 무슨 일이 있었어요?','그 자리에�
 const S3NAME={event:'사건',object:'사물',sense:'감각'};
 const ORDER=['event','object','sense'];
 
-let fatal='';
+let fatal='', showSettings=false;
 let S;
 /* 설정: 이 브라우저에만 저장 */
 const CFG={pass:'',extract:'',draft:'',models:[]};
@@ -539,16 +546,17 @@ function render(){
   m.innerHTML=h;bind();renderLog();
 }
 function settingsHTML(){
-  const ready=CFG.extract&&!fatal;
-  return `<details class="settings" ${ready?'':'open'} style="margin-bottom:20px;border-bottom:1px solid var(--line);padding-bottom:14px">
-  <summary style="cursor:pointer;font-size:13px;color:var(--ink-2)">설정 · 판독 ${esc(CFG.extract||'미정')} · 초안 ${esc(CFG.draft||'미정')}</summary>
-  <div style="display:grid;gap:10px;margin-top:12px">
+  const ready=CFG.extract&&CFG.models.length&&!fatal;
+  if(ready&&!showSettings)return '';
+  return `<section class="settings" id="settingsPanel" aria-label="설정">
+  <div class="settings-head"><h2>설정</h2>${ready?'<button class="quiet" id="b-close-settings">닫기</button>':''}</div>
+  <div style="display:grid;gap:10px;margin-top:8px">
     <div class="row" style="margin:0"><input type="text" id="pass" placeholder="팀 암호" value="${esc(CFG.pass)}" autocomplete="off" style="flex:1;min-width:0"><button id="b-pass">연결하고 모델 불러오기</button></div>
     <label class="note">판독 모델 (가볍고 빠른 모델)<input type="text" id="mExtract" list="modelList" value="${esc(CFG.extract)}"></label>
     <label class="note">초안 모델<input type="text" id="mDraft" list="modelList" value="${esc(CFG.draft)}"></label>
     <datalist id="modelList">${CFG.models.map(m=>`<option value="${esc(m)}">`).join('')}</datalist>
     <p class="note" style="margin:0">${CFG.models.length?`모델 ${CFG.models.length}개를 불러왔어요. 칸을 비우고 입력하면 목록에서 고를 수 있어요.`:'암호를 넣고 연결하면 쓸 수 있는 모델 목록을 불러와요.'}</p>
-  </div></details>`;
+  </div></section>`;
 }
 function histHTML(){
   const runs=loadRuns();if(!runs.length)return'';
@@ -575,6 +583,7 @@ function bind(){
   on('b-copy',e=>copyText(S.drafts.map(d=>recordText(runRecord(d))).join('\n---\n\n'),e.currentTarget));
   document.querySelectorAll('[data-dcopy]').forEach(b=>b.onclick=()=>copyText(recordText(runRecord(S.drafts[+b.dataset.dcopy])),b));
   on('b-pass',()=>{CFG.pass=$('#pass').value;saveCfg();loadModels()});
+  on('b-close-settings',()=>{showSettings=false;render()});
   const me=$('#mExtract'),md=$('#mDraft');
   if(me)me.onchange=()=>{CFG.extract=me.value.trim();saveCfg();renderLog()};
   if(md)md.onchange=()=>{CFG.draft=md.value.trim();saveCfg();renderLog()};
@@ -587,8 +596,10 @@ function renderModelbar(){
   const el=$('#modelbar');if(!el)return;
   const on=!!CFG.models.length&&!fatal;
   const b=(label,m)=>`<button class="mb ${on&&m?'':'off'}" data-open-settings title="${esc(m||'미정')}"><i class="dot"></i><span>${label}</span><code>${esc(m||'연결 전')}</code></button>`;
-  el.innerHTML=b('판독',CFG.extract)+b('초안',CFG.draft);
-  el.querySelectorAll('[data-open-settings]').forEach(x=>x.onclick=()=>{const d=document.querySelector('details.settings');if(d){d.open=true;d.scrollIntoView({block:'start',behavior:'smooth'})}});
+  el.innerHTML=b('판독',CFG.extract)+b('초안',CFG.draft)+`<button class="setbtn ${showSettings?'on':''}" id="b-settings" aria-expanded="${showSettings}"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2.2M10 15.3v2.2M2.5 10h2.2M15.3 10h2.2M4.7 4.7l1.6 1.6M13.7 13.7l1.6 1.6M4.7 15.3l1.6-1.6M13.7 6.3l1.6-1.6"/></svg>설정</button>`;
+  const open=()=>{showSettings=!showSettings;render();if(showSettings){const d=$('#settingsPanel');if(d)d.scrollIntoView({block:'start',behavior:'smooth'})}};
+  el.querySelectorAll('[data-open-settings]').forEach(x=>x.onclick=()=>{showSettings=false;open()});
+  $('#b-settings').onclick=open;
 }
 function renderLog(){
   renderModelbar();
