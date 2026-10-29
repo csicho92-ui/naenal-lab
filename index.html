@@ -440,7 +440,7 @@ JSON 하나만 출력: {"title": 문자열, "body": 문자열}  body의 문단 �
 const GLUE=new Set(['나는','나도','나','내가','내','그','그때','그때는','그날','그날은','거기','거기서','거기서는','거기에','그리고','그런데','그래서','그게','그것','것','수','또','다시','이었다','였다','했다','있었다','없었다','있다','없다','이다','그곳','그곳에서']);
 const NUMW=/^(한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|스무|서른)\s?(번|살|시|개|명|잔|병|시간|달|해|권|장|대)/;
 function analyse(body){
-  const src=[...allQA().filter(x=>!x.btn).map(x=>x.a),S.extra].join(' ');
+  const src=[...allQA().filter(x=>!x.btn).map(x=>x.a),S.extra,S.weather].join(' ');
   const flat=src.replace(/\s/g,'');
   let words=0,mine=0,neu=0,news=[],flags=[];
   const html=body.split(/\n{2,}/).map(par=>'<p>'+par.split(/(\s+)/).map(tok=>{
