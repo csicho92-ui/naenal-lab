@@ -1,5 +1,26 @@
 import { NV_BASE, GM_BASE, GM_PREFIX, checkAccess } from './_shared.js';
 
+// Gemini 모델마다 지원하는 생각 단계가 달라서, 거절되면 한 단계씩 올려 다시 보낸다
+const LEVELS = ['minimal', 'low', 'medium', 'high'];
+async function post(base, key, body, accept, timeoutMs) {
+  for (;;) {
+    const r = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Accept: accept },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (r.ok || !body.reasoning_effort) return r;
+    const txt = await r.text();
+    const i = LEVELS.indexOf(body.reasoning_effort);
+    if (/thinking level|reasoning_effort|reasoning effort/i.test(txt) && i >= 0 && i < LEVELS.length - 1) {
+      body = { ...body, reasoning_effort: LEVELS[i + 1] };
+      continue;
+    }
+    return new Response(txt, { status: r.status, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'method' });
   if (!checkAccess(req, res)) return;
@@ -35,12 +56,7 @@ export default async function handler(req, res) {
   const t0 = Date.now();
   if (role === 'draft') return streamDraft(res, isGemini ? GM_BASE : NV_BASE, key, body, model, t0);
   try {
-    const r = await fetch(`${isGemini ? GM_BASE : NV_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(110000),
-    });
+    const r = await post(isGemini ? GM_BASE : NV_BASE, key, body, 'application/json', 110000);
     const j0 = await r.json().catch(() => ({}));
     const j = Array.isArray(j0) ? j0[0] || {} : j0;
     if (!r.ok) {
@@ -72,12 +88,7 @@ export default async function handler(req, res) {
 async function streamDraft(res, base, key, body, model, t0) {
   let r;
   try {
-    r = await fetch(`${base}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-      body: JSON.stringify({ ...body, stream: true, stream_options: { include_usage: true } }),
-      signal: AbortSignal.timeout(280000),
-    });
+    r = await post(base, key, { ...body, stream: true, stream_options: { include_usage: true } }, 'text/event-stream', 280000);
   } catch (e) {
     return res.status(504).json({ error: e?.name === 'TimeoutError' ? 'timeout' : 'upstream', message: String(e.message || e) });
   }
