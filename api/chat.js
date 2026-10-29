@@ -25,6 +25,8 @@ export default async function handler(req, res) {
         stream: false,
         // NVIDIA에서 DeepSeek V4는 생각 모드 옵션이 없으면 응답이 멈춘다고 보고됨
         ...(/deepseek-v4/i.test(model) ? { chat_template_kwargs: { enable_thinking: true, thinking: true } } : {}),
+        // Qwen 3 계열은 기본이 생각 모드라 판독이 느리고 답이 비어 올 수 있어 끈다
+        ...(/qwen3/i.test(model) && !/thinking/i.test(model) ? { chat_template_kwargs: { enable_thinking: false } } : {}),
       }),
       signal: AbortSignal.timeout(110000),
     });
@@ -35,9 +37,19 @@ export default async function handler(req, res) {
         message: j?.detail || j?.error?.message || `NVIDIA 응답 ${r.status}`,
       });
     }
-    const msg = j.choices?.[0]?.message || {};
+    const choice = j.choices?.[0] || {};
+    const msg = choice.message || {};
+    const text = msg.content || '';
+    if (!text.trim()) {
+      return res.status(502).json({
+        error: 'empty',
+        message: `모델이 빈 답을 보냈어요 (finish_reason: ${choice.finish_reason || '?'})` +
+          (msg.reasoning_content ? ` · 생각만 ${String(msg.reasoning_content).length}자 쓰고 끝남` : ''),
+      });
+    }
     res.status(200).json({
-      text: msg.content || '',
+      text,
+      finish: choice.finish_reason || null,
       usage: j.usage || null,
       model: j.model || model,
       ms: Date.now() - t0,
