@@ -162,7 +162,7 @@ fresh();
 const NOT_CHAT=/image|imagen|veo|live|native-audio|audio|tts|computer-use|robotics|aqa|embed|rerank|reward|guard|safety|shield|vision|-vl|vlm|clip|parse|ocr|whisper|tts|asr|riva|retriev|cosmos|detect|segment|sdxl|flux|stable-diffusion|diffusion|kosmos|paligemma|deplot|fuyu|neva|vila|nvclip|grounding|pii|content-safety|topic-control|jailbreak|calibration|starcoder|codestral|codegemma|coder|code-|math|bge|e5-|arctic-embed|nemoretriever|usdcode|reason-rm|-rm\b/i;
 // 판독은 빠르고 지시를 잘 따르는 모델, 초안은 한국어가 좋은 큰 모델 우선
 const EXTRACT_PREF=[/^gemini:gemini-3\.5-flash-lite/i,/^gemini:.*flash-lite/i,/qwen3/i,/llama-3\.3-70b-instruct/i,/qwen2\.5-72b/i,/llama-4.*instruct/i,/qwen/i,/mistral-(small|medium|large).*instruct/i,/gemma-3/i,/llama.*70b.*instruct/i];
-const DRAFT_PREF=[/^gemini:gemini-3\.8-flash$/i,/^gemini:gemini-3\.\d-flash$/i,/^gemini:.*flash(?!-lite)/i,/deepseek-v4-flash/i,/qwen3.*(235b|397b|480b|122b|max)/i,/deepseek-v[34]/i,/qwen3/i,/llama-4-maverick/i,/llama-3\.3-70b-instruct/i,/qwen/i,/mistral-large/i];
+const DRAFT_PREF=[/^gemini:gemini-3\.5-flash$/i,/^gemini:gemini-3\.\d-flash$/i,/^gemini:.*flash(?!-lite)/i,/deepseek-v4-flash/i,/qwen3.*(235b|397b|480b|122b|max)/i,/deepseek-v[34]/i,/qwen3/i,/llama-4-maverick/i,/llama-3\.3-70b-instruct/i,/qwen/i,/mistral-large/i];
 function pickModel(prefs){for(const re of prefs){const m=CFG.models.find(x=>re.test(x)&&!/thinking|reason|r1|deepseek-v4|preview/i.test(x));if(m)return m}for(const re of prefs){const m=CFG.models.find(x=>re.test(x));if(m)return m}return CFG.models.find(m=>/instruct|chat/i.test(m))||CFG.models[0]||''}
 async function loadModels(){
   try{
@@ -186,12 +186,16 @@ async function loadModels(){
 async function streamLLM(prompt,model,onText){
   const t=performance.now();
   try{
-    const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json','x-passcode':encodeURIComponent(CFG.pass)},
-      body:JSON.stringify({model,prompt,role:'draft',max_tokens:3000,temperature:0.4})});
+    const ctl=new AbortController();let first=false;
+    const timer=setTimeout(()=>{if(!first)ctl.abort()},90000);
+    let r;
+    try{r=await fetch('/api/chat',{method:'POST',signal:ctl.signal,headers:{'Content-Type':'application/json','x-passcode':encodeURIComponent(CFG.pass)},
+      body:JSON.stringify({model,prompt,role:'draft',max_tokens:3000,temperature:0.4})});}
+    catch(e){clearTimeout(timer);throw {code:'no_response',message:`${model}이(가) 90초 동안 응답하지 않았어요. 무료 등급에서 붐비는 모델일 수 있으니 초안 모델을 바꿔 보세요.`}}
     if(!r.ok){const j=await r.json().catch(()=>({}));const m=j.message||'';throw {code:/not found/i.test(m)?'model_unavailable':(j.error||('http_'+r.status)),message:m}}
     const rd=r.body.getReader(),dec=new TextDecoder();let all='';
-    for(;;){const {value,done}=await rd.read();if(done)break;all+=dec.decode(value,{stream:true});const k=all.indexOf('\u0000');onText(k<0?all:all.slice(0,k))}
-    all+=dec.decode();
+    for(;;){let x;try{x=await rd.read()}catch(e){clearTimeout(timer);throw {code:'no_response',message:`${model}이(가) 90초 동안 글을 보내지 않았어요. 초안 모델을 바꿔 보세요.`}}const {value,done}=x;if(done)break;if(value&&value.length)first=true;all+=dec.decode(value,{stream:true});const k=all.indexOf('\u0000');onText(k<0?all:all.slice(0,k))}
+    clearTimeout(timer);all+=dec.decode();
     const k=all.indexOf('\u0000');const text=k<0?all:all.slice(0,k);let meta={};
     try{meta=JSON.parse(all.slice(k+1))}catch(e){}
     USAGE.push({role:'draft',model,in:meta.usage?.prompt_tokens||0,out:meta.usage?.completion_tokens||0,ms:meta.ms||0});
