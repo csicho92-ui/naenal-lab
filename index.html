@@ -428,10 +428,18 @@ JSON 하나만 출력: {"title": 문자열, "body": 문자열}  body의 문단 �
   busy(true);go(S.drafts.length?'draft':'drafting');
   const t=performance.now();
   try{
-    let raw;
+    let raw;const tried=new Set();
     for(let k=0;;k++){
       try{S.streamText='';raw=await streamLLM(p,model,txt=>{S.streamText=txt;const el=document.getElementById('streamOut');if(el)el.textContent=txt.replace(/^[\s\S]*?"body"\s*:\s*"/,'').replace(/\\n/g,'\n').replace(/"\s*}\s*`*\s*$/,'')||'생각하는 중…'});break}
-      catch(e){if(e.code==='model_unavailable'&&k<4&&model===CFG.draft&&swapModel('draft')){model=CFG.draft;continue}throw e}
+      catch(e){
+        if(e.code==='model_unavailable'&&k<4&&model===CFG.draft&&swapModel('draft')){model=CFG.draft;continue}
+        // 한도 초과: 이번 초안만 다음 추천 모델로 넘김 (설정은 그대로, 쓸 수 없는 모델로 치지 않음)
+        if(e.code==='rate_limited'&&k<3){
+          tried.add(model);
+          const alt=DRAFT_PREF.concat(EXTRACT_PREF).map(re=>CFG.models.find(m=>re.test(m)&&!tried.has(m)&&!/thinking|reason|r1|preview/i.test(m))).find(Boolean);
+          if(alt){ev(`"${model}" 무료 한도 초과 → 이번 초안은 "${alt}"로 엮어요`,'fail');model=alt;continue}
+        }
+        throw e}
     }
     const r=parseJSON(raw);
     const u=USAGE[USAGE.length-1]||{};
@@ -441,7 +449,7 @@ JSON 하나만 출력: {"title": 문자열, "body": 문자열}  body의 문단 �
     saveRun();go('draft');
   }catch(e){
     if(['bad_passcode','no_key'].includes(e.code))fatal=e.message;
-    ev(`초안 생성 실패 (${e.code}) ${e.message||''}`,'fail');S.draftErr=e.code+(e.message?': '+e.message.slice(0,120):'');go(S.drafts.length?'draft':'s4');
+    ev(`초안 생성 실패 (${e.code}) ${e.code==='rate_limited'?'무료 한도 초과. 1분 뒤 다시 시도하거나, 일일 한도면 한국 시간 오후 4~5시(미국 태평양 자정)에 초기화돼요.':(e.message||'')}`,'fail');S.draftErr=e.code+(e.message?': '+e.message.slice(0,120):'');go(S.drafts.length?'draft':'s4');
   }finally{busy(false)}
 }
 
