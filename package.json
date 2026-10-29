@@ -1,0 +1,6 @@
+{
+  "name": "naenal-lab",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" }
+}
