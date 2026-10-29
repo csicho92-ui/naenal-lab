@@ -146,7 +146,7 @@ let S;
 /* 설정: 이 브라우저에만 저장 */
 const CFG={pass:'',extract:'',draft:'',models:[]};
 try{Object.assign(CFG,JSON.parse(localStorage.getItem('naenal-cfg')||'{}'))}catch(e){}
-function saveCfg(){try{localStorage.setItem('naenal-cfg',JSON.stringify({pass:CFG.pass,extract:CFG.extract,draft:CFG.draft}))}catch(e){}}
+function saveCfg(){try{localStorage.setItem('naenal-cfg',JSON.stringify({pass:CFG.pass,extract:CFG.extract,draft:CFG.draft,bad:CFG.bad||[]}))}catch(e){}}
 const USAGE=[]; // {role,model,in,out,ms}
 function fresh(){
   S={phase:'weather',weather:'',wxCustom:false,
@@ -171,7 +171,7 @@ async function loadModels(){
     if(!r.ok){fatal=j.message||'모델 목록을 불러오지 못했어요.';return render()}
     fatal='';
     const all=j.models||[];
-    CFG.models=all.filter(m=>!NOT_CHAT.test(m));
+    CFG.models=all.filter(m=>!NOT_CHAT.test(m)&&!(CFG.bad||[]).includes(m));
     const ok=m=>m&&CFG.models.includes(m);
     if(!ok(CFG.extract))CFG.extract=(ok(j.defaults?.extract)&&j.defaults.extract)||pickModel(EXTRACT_PREF);
     if(!ok(CFG.draft))CFG.draft=(ok(j.defaults?.draft)&&j.defaults.draft)||pickModel(DRAFT_PREF)||CFG.extract;
@@ -188,7 +188,7 @@ async function callLLM(prompt,role,model,max_tokens){
     const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json','x-passcode':encodeURIComponent(CFG.pass)},
       body:JSON.stringify({model,prompt,max_tokens,temperature:role==='draft'?0.4:0})});
     const j=await r.json().catch(()=>({}));
-    if(!r.ok)throw {code:j.error||('http_'+r.status),message:j.message||''};
+    if(!r.ok){const m=j.message||'';throw {code:/not found for account|not found|404/i.test(m)?'model_unavailable':(j.error||('http_'+r.status)),message:m}}
     USAGE.push({role,model,in:j.usage?.prompt_tokens||0,out:j.usage?.completion_tokens||0,ms:j.ms||0});
     return j.text||'';
   }finally{S.waitMs+=performance.now()-t}
@@ -204,11 +204,23 @@ async function callJSON(prompt,role){
   const model=role==='draft'?CFG.draft:CFG.extract;
   return parseJSON(await callLLM(prompt,role,model,role==='draft'?3000:1200));
 }
+function swapModel(role){
+  const key=role==='draft'?'draft':'extract', bad=CFG[key];
+  CFG.bad=[...new Set([...(CFG.bad||[]),bad])];
+  CFG.models=CFG.models.filter(m=>m!==bad);
+  CFG[key]=pickModel(role==='draft'?DRAFT_PREF:EXTRACT_PREF);
+  saveCfg();
+  ev(`"${bad}"는 이 계정에서 쓸 수 없는 모델이에요 → "${CFG[key]||'없음'}"(으)로 바꿔서 다시 불러요`,'fail');
+  renderModelbar();
+  return !!CFG[key];
+}
 async function withRetry(label,fn){
+  let swaps=0;
   for(let i=0;i<2;i++){
     try{return await fn()}catch(e){
       if(['bad_passcode','no_key'].includes(e.code)){fatal=e.message;render();throw e}
-      ev(`${label} 실패 (${e.code})${e.message?'\n모델 응답: '+String(e.message).slice(0,200):''}${i===0?'\n→ 자동 재시도':'\n→ 값 없는 답으로 처리'}`,'fail');
+      if(e.code==='model_unavailable'&&swaps<4&&swapModel('extract')){swaps++;i--;continue}
+      ev(`${label} 실패 (${e.code})${e.message?'\n모델 응답: '+String(e.message).slice(0,200):''}${i===0?'\n→ 자동 재시도':'\n→ 답을 읽지 못함 (횟수는 세지 않음)'}`,'fail');
     }
   }
   return null;
@@ -238,6 +250,7 @@ async function extract2(ans){
 
 설명 없이 JSON 하나만 출력: {"time": 문자열 또는 null, "place": 문자열 또는 null}`;
   const r=await withRetry('때·장소 판독',()=>callJSON(p,'extract'));
+  if(r===null)return {failed:true};
   const out={time:keep(r?.time,ans,'time'),place:keep(r?.place,ans,'place')};
   ev(`판독 ← "${ans}"\n→ ${JSON.stringify(r)}\n채택 ${JSON.stringify(out)}`);
   return out;
@@ -261,6 +274,7 @@ async function extract3(ans,label){
   const r=await withRetry(label,()=>callJSON(p,'extract'));
   const out={};
   for(const k of ORDER){out[k]=(Array.isArray(r?.[k])?r[k]:[]).map(v=>keep(v,ans,k)).filter(Boolean)}
+  if(r===null)out.failed=true;
   ev(`${label} ← "${ans}"\n→ ${JSON.stringify(r)}\n채택 ${JSON.stringify(out)}`);
   return out;
 }
@@ -277,10 +291,17 @@ function s2Next(){
 async function s2Answer(text){
   S.s2.answers.push({q:S.cur.q,a:text});busy(true);
   try{const r=await extract2(text);
+    if(r.failed)return retryLater(S.s2.answers,text);
     if(r.time&&S.s2.TIME.st!=='FILLED'){S.s2.TIME.st='FILLED';S.s2.TIME.val=r.time}
     if(r.place&&S.s2.PLACE.st!=='FILLED'){S.s2.PLACE.st='FILLED';S.s2.PLACE.val=r.place}
   }catch(e){}
   busy(false);s2Next();
+}
+// 호출이 실패하면 답을 기록하지 않고, 같은 질문에 쓴 답을 그대로 둔 채 다시 보내게 한다 (물은 횟수 그대로)
+function retryLater(list,text){
+  list.pop();S.retryText=text;S.sendErr=true;
+  S.rule+='\n→ 판독 실패: 횟수 세지 않고 같은 질문 유지';
+  busy(false);
 }
 function s2Unknown(){S.s2.answers.push({q:S.cur.q,a:'[기억이 안 나요]',btn:true});S.s2[S.cur.slot].st='UNKNOWN';ev(`[기억이 안 나요] → ${S.cur.slot} UNKNOWN`);s2Next()}
 function rechoose(){
@@ -316,7 +337,7 @@ function judge(){
 }
 async function s3Answer(text){
   S.s3.answers.push({q:S.cur.q,a:text});busy(true);go('s3');
-  try{const r=await extract3(text,'꼬리질문 판독');fill3(r)}catch(e){}
+  try{const r=await extract3(text,'꼬리질문 판독');if(r.failed)return retryLater(S.s3.answers,text);fill3(r)}catch(e){}
   busy(false);s3Next();
 }
 function s3Unknown(){S.s3.answers.push({q:S.cur.q,a:'[기억이 안 나요]',btn:true});S.s3[S.cur.slot].st='UNKNOWN';ev(`[기억이 안 나요] → ${S3NAME[S.cur.slot]} UNKNOWN`);s3Next()}
@@ -376,7 +397,12 @@ JSON 하나만 출력: {"title": 문자열, "body": 문자열}  body의 문단 �
   busy(true);go(S.drafts.length?'draft':'drafting');
   const t=performance.now();
   try{
-    const r=parseJSON(await callLLM(p,'draft',model,3000));
+    let raw;
+    for(let k=0;;k++){
+      try{raw=await callLLM(p,'draft',model,3000);break}
+      catch(e){if(e.code==='model_unavailable'&&k<4&&model===CFG.draft&&swapModel('draft')){model=CFG.draft;continue}throw e}
+    }
+    const r=parseJSON(raw);
     const u=USAGE[USAGE.length-1]||{};
     S.draft={title:String(r.title||''),body:String(r.body||''),at:new Date().toISOString(),model,tin:u.in,tout:u.out,ms:u.ms};
     S.drafts.unshift(S.draft);
@@ -455,7 +481,8 @@ function busy(b){S.busy=b;render()}
 function go(p){S.phase=p;render();const i=$('#ans');if(i)i.focus()}
 function sceneCard(){return `<dl class="scene"><dt>날씨</dt><dd>${esc(S.scene.weather)}</dd><dt>언제</dt><dd>${esc(S.scene.time)}</dd><dt>어디</dt><dd>${esc(S.scene.place)}</dd></dl>`}
 function answerBox(btns){return `
-  <textarea id="ans" rows="3" maxlength="500" placeholder="떠오르는 대로 적어 주세요" ${S.busy?'disabled':''}></textarea>
+  ${S.sendErr?'<p class="banner" style="margin:0 0 10px">답을 읽지 못했어요. 연결 문제라 횟수에는 넣지 않았어요. 다시 보내 주세요.</p>':''}
+  <textarea id="ans" rows="3" maxlength="500" placeholder="떠오르는 대로 적어 주세요" ${S.busy?'disabled':''}>${esc(S.retryText||'')}</textarea>
   <div class="row">
     <button class="primary" id="b-next" ${S.busy?'disabled':''}>다음</button>
     <button id="b-unk" ${S.busy?'disabled':''}>기억이 안 나요</button>
@@ -568,7 +595,7 @@ function bind(){
   on('b-wxc',()=>{const v=$('#wxc').value.trim();if(v)startWx(v,true)});
   const ans=$('#ans');
   if(ans)ans.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('#b-next').click()}};
-  on('b-next',()=>{const v=($('#ans').value||'').trim();if(!v||fatal||!CFG.extract)return;S.phase==='s2'?s2Answer(v):s3Answer(v)});
+  on('b-next',()=>{const v=($('#ans').value||'').trim();S.sendErr=false;S.retryText='';if(!v||fatal||!CFG.extract)return;S.phase==='s2'?s2Answer(v):s3Answer(v)});
   on('b-unk',()=>S.phase==='s2'?s2Unknown():s3Unknown());
   on('b-done',()=>{if(S.phase==='s2'){S.rule='② 1행: [이제 됐어요] → 끝';pause('s2')}else{S.rule='② 1행: [이제 됐어요] → 통과 판정';judge()}});
   on('b-re',rechoose);
