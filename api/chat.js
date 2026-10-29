@@ -20,9 +20,11 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model,
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: Math.min(Number(max_tokens) || 800, 4000),
+        max_tokens: /deepseek-v4/i.test(model) ? 8000 : Math.min(Number(max_tokens) || 800, 4000),
         temperature,
         stream: false,
+        // NVIDIA에서 DeepSeek V4는 생각 모드 옵션이 없으면 응답이 멈춘다고 보고됨
+        ...(/deepseek-v4/i.test(model) ? { chat_template_kwargs: { enable_thinking: true, thinking: true } } : {}),
       }),
       signal: AbortSignal.timeout(110000),
     });
