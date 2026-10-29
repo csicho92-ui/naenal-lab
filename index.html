@@ -182,6 +182,24 @@ async function loadModels(){
 }
 
 /* ---------- LLM 호출 (우리 서버 → NVIDIA) ---------- */
+// 초안: 서버가 쓰는 대로 흘려보내는 글을 받아 화면에 바로 보여 준다
+async function streamLLM(prompt,model,onText){
+  const t=performance.now();
+  try{
+    const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json','x-passcode':encodeURIComponent(CFG.pass)},
+      body:JSON.stringify({model,prompt,role:'draft',max_tokens:3000,temperature:0.4})});
+    if(!r.ok){const j=await r.json().catch(()=>({}));const m=j.message||'';throw {code:/not found/i.test(m)?'model_unavailable':(j.error||('http_'+r.status)),message:m}}
+    const rd=r.body.getReader(),dec=new TextDecoder();let all='';
+    for(;;){const {value,done}=await rd.read();if(done)break;all+=dec.decode(value,{stream:true});const k=all.indexOf('\u0000');onText(k<0?all:all.slice(0,k))}
+    all+=dec.decode();
+    const k=all.indexOf('\u0000');const text=k<0?all:all.slice(0,k);let meta={};
+    try{meta=JSON.parse(all.slice(k+1))}catch(e){}
+    USAGE.push({role:'draft',model,in:meta.usage?.prompt_tokens||0,out:meta.usage?.completion_tokens||0,ms:meta.ms||0});
+    if(meta.error&&!text.trim())throw {code:meta.error==='timeout'?'timeout':'empty',message:meta.error};
+    if(meta.error)ev(`초안이 중간에 끊겼어요 (${meta.error}). 받은 데까지 씁니다.`,'fail');
+    return text;
+  }finally{S.waitMs+=performance.now()-t}
+}
 async function callLLM(prompt,role,model,max_tokens){
   const t=performance.now();
   try{
@@ -399,7 +417,7 @@ JSON 하나만 출력: {"title": 문자열, "body": 문자열}  body의 문단 �
   try{
     let raw;
     for(let k=0;;k++){
-      try{raw=await callLLM(p,'draft',model,3000);break}
+      try{S.streamText='';raw=await streamLLM(p,model,txt=>{S.streamText=txt;const el=document.getElementById('streamOut');if(el)el.textContent=txt.replace(/^[\s\S]*?"body"\s*:\s*"/,'').replace(/\\n/g,'\n').replace(/"\s*}\s*`*\s*$/,'')||'생각하는 중…'});break}
       catch(e){if(e.code==='model_unavailable'&&k<4&&model===CFG.draft&&swapModel('draft')){model=CFG.draft;continue}throw e}
     }
     const r=parseJSON(raw);
@@ -536,7 +554,7 @@ function render(){
     ${S.draftErr?`<p class="banner" style="margin-top:16px">초안을 만들지 못했어요 (${S.draftErr}). 다시 눌러 보세요.</p>`:''}
     <div class="row" style="margin-top:20px"><button class="primary" id="b-draft">초안 엮기</button></div>`;
   }
-  if(P==='drafting'){h+=`<div class="eyebrow">초안</div><p class="bigq">답을 엮는 중이에요…</p><p class="note">대기 시간은 소요 시간에서 빠져요.</p>`}
+  if(P==='drafting'){h+=`<div class="eyebrow">초안 · ${esc(CFG.draft)}</div><p class="bigq">답을 엮는 중이에요…</p><pre id="streamOut" class="draft" style="white-space:pre-wrap;font:inherit;font-family:var(--f-display);color:var(--ink-2);min-height:4em">생각하는 중…</pre><p class="note">모델이 먼저 생각한 뒤 글을 쓰기 시작해요. 대기 시간은 소요 시간에서 빠져요.</p>`}
   if(P==='draft'){
     const r=runRecord(S.drafts[S.drafts.length-1]);
     h+=`<div class="eyebrow">초안과 출처 확인</div>
@@ -564,7 +582,7 @@ function render(){
     });
     h+=`<h3>다른 모델로 같은 재료 엮어 보기</h3>
     <div class="row"><input type="text" id="cmpModel" list="modelList" value="${esc(CFG.draft)}" style="flex:1;min-width:0"><button id="b-cmp" ${S.busy?'disabled':''}>이 모델로 엮기</button></div>
-    ${S.busy?'<p class="busy">엮는 중…</p>':''}
+    ${S.busy?'<p class="busy">엮는 중…</p><pre id="streamOut" style="white-space:pre-wrap;font:inherit;color:var(--ink-2)">생각하는 중…</pre>':''}
     <h3>원래 답</h3><ol class="qa">${allQA().map(x=>`<li><span class="q">${esc(x.q)}</span>${esc(x.a)}</li>`).join('')}</ol>
     <div class="row" style="margin-top:20px"><button class="primary" id="b-copy">초안 전부 기록 복사</button><button class="quiet" id="b-reset">새 글 쓰기</button></div>
     <textarea id="copyfallback" rows="6" hidden></textarea>`;

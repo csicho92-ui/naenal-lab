@@ -20,8 +20,8 @@ export default async function handler(req, res) {
   };
   if (isGemini) {
     // Gemini 3 계열은 생각을 끌 수 없어 가장 낮게 둔다. 생각 토큰을 감안해 한도를 넉넉히
-    body.reasoning_effort = role === 'draft' ? 'low' : 'minimal';
-    body.max_tokens = role === 'draft' ? 8000 : 2000;
+    body.reasoning_effort = 'minimal';
+    body.max_tokens = role === 'draft' ? 6000 : 2000;
   } else if (/deepseek-v4/i.test(model)) {
     // NVIDIA에서 DeepSeek V4는 생각 모드 옵션이 없으면 응답이 멈춘다고 보고됨
     body.chat_template_kwargs = { enable_thinking: true, thinking: true };
@@ -33,6 +33,7 @@ export default async function handler(req, res) {
   }
 
   const t0 = Date.now();
+  if (role === 'draft') return streamDraft(res, isGemini ? GM_BASE : NV_BASE, key, body, model, t0);
   try {
     const r = await fetch(`${isGemini ? GM_BASE : NV_BASE}/chat/completions`, {
       method: 'POST',
@@ -64,4 +65,50 @@ export default async function handler(req, res) {
     const timeout = e?.name === 'TimeoutError';
     res.status(504).json({ error: timeout ? 'timeout' : 'upstream', message: String(e.message || e) });
   }
+}
+
+// 초안은 길어서 다 쓸 때까지 기다리면 시간이 넘친다. 쓰는 대로 받아 그대로 흘려보낸다.
+// 본문은 글자 그대로, 맨 끝에 "\u0000" 다음 JSON 한 줄(사용량, 끝난 이유)을 붙인다.
+async function streamDraft(res, base, key, body, model, t0) {
+  let r;
+  try {
+    r = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify({ ...body, stream: true, stream_options: { include_usage: true } }),
+      signal: AbortSignal.timeout(280000),
+    });
+  } catch (e) {
+    return res.status(504).json({ error: e?.name === 'TimeoutError' ? 'timeout' : 'upstream', message: String(e.message || e) });
+  }
+  if (!r.ok) {
+    const j0 = await r.json().catch(() => ({}));
+    const j = Array.isArray(j0) ? j0[0] || {} : j0;
+    return res.status(r.status === 429 ? 429 : 502).json({
+      error: r.status === 429 ? 'rate_limited' : (r.status === 404 ? 'model_unavailable' : 'upstream'),
+      message: j?.detail || j?.error?.message || `응답 ${r.status}`,
+    });
+  }
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' });
+  const dec = new TextDecoder();
+  let buf = '', usage = null, finish = null, chars = 0, err = null;
+  try {
+    for await (const chunk of r.body) {
+      buf += dec.decode(chunk, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if (!line.startsWith('data:')) continue;
+        const data = line.slice(5).trim();
+        if (data === '[DONE]') continue;
+        let j; try { j = JSON.parse(data); } catch { continue; }
+        if (j.usage) usage = j.usage;
+        const c = j.choices?.[0];
+        if (c?.finish_reason) finish = c.finish_reason;
+        const d = c?.delta?.content;
+        if (d) { chars += d.length; res.write(d.replace(/\u0000/g, '')); }
+      }
+    }
+  } catch (e) { err = e?.name === 'TimeoutError' ? 'timeout' : String(e.message || e); }
+  res.end('\u0000' + JSON.stringify({ usage, finish, model, ms: Date.now() - t0, error: err || (chars ? null : 'empty') }));
 }
