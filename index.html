@@ -32,6 +32,10 @@ body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-siz
 header.top{max-width:1080px;margin:0 auto 16px;display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
 header.top h1{font-family:var(--f-display);font-weight:700;font-size:24px;margin:0;letter-spacing:-.01em}
 header.top p{margin:0;color:var(--ink-2);font-size:13px}
+.modelbar{display:flex;gap:8px;flex-wrap:wrap}
+.mb{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;padding:4px 10px;border:1px solid var(--line);border-radius:99px;background:var(--page);max-width:100%;cursor:pointer}
+.mb span{color:var(--ink-2)} .mb code{font-family:var(--f-mono);font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46vw}
+.mb .dot{width:7px;height:7px;border-radius:50%;background:var(--ok)} .mb.off .dot{background:var(--warn)}
 .page{background:var(--page);border:1px solid var(--line);border-radius:6px;padding:28px clamp(18px,4vw,40px);min-height:520px;min-width:0}
 .eyebrow{font-size:12px;letter-spacing:.08em;color:var(--ink-2);font-weight:600}
 .bigq{font-family:var(--f-display);font-size:clamp(22px,3.4vw,28px);line-height:1.45;margin:10px 0 22px;text-wrap:balance}
@@ -102,7 +106,7 @@ details.hist summary{cursor:pointer;font-size:13px;color:var(--ink-2)}
 <body>
 <header class="top">
   <h1>내 안의 날씨 실험실</h1>
-  <p>2단계 장면 좁히기 · 3단계 꼬리질문 로직 그대로 → 초안까지</p>
+  <div class="modelbar" id="modelbar" aria-live="polite"></div>
 </header>
 <div class="wrap">
   <main class="page" id="main"></main>
@@ -579,7 +583,15 @@ function bind(){
   on('b-hclear',()=>{try{localStorage.removeItem('naenal-runs')}catch(e){}render()});
 }
 function startWx(w,custom){S.weather=w;S.wxCustom=custom;S.t0=Date.now();ev(`날씨: ${w}${custom?' (직접 쓰기 → 질문에는 "그런 날씨")':''}`);s2Next()}
+function renderModelbar(){
+  const el=$('#modelbar');if(!el)return;
+  const on=!!CFG.models.length&&!fatal;
+  const b=(label,m)=>`<button class="mb ${on&&m?'':'off'}" data-open-settings title="${esc(m||'미정')}"><i class="dot"></i><span>${label}</span><code>${esc(m||'연결 전')}</code></button>`;
+  el.innerHTML=b('판독',CFG.extract)+b('초안',CFG.draft);
+  el.querySelectorAll('[data-open-settings]').forEach(x=>x.onclick=()=>{const d=document.querySelector('details.settings');if(d){d.open=true;d.scrollIntoView({block:'start',behavior:'smooth'})}});
+}
 function renderLog(){
+  renderModelbar();
   const st=s=>`<span class="st st-${s}">${s}</span>`;
   let h=`<h4>로직 상태</h4><table class="slots"><tbody>
   <tr><td colspan="4" style="color:var(--ink-2)">2단계 · 장면 ${S.sceneNo}/2</td></tr>
