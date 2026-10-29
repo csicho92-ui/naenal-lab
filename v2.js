@@ -162,6 +162,12 @@ async function askJSON(label,prompt,role='extract'){
   }
   return null;
 }
+function trimTail(s){
+  let t=s.replace(/[.!?…~]+$/,'').trim();
+  if(/이요$/.test(t))t=t.slice(0,-2);
+  else if(/요$/.test(t)&&!/(어|아|해|여|워|와|에|예|지|죠|세|게|네|래|대|데|군|나|까|봐)요$/.test(t))t=t.slice(0,-1);
+  return t.trim()||s;
+}
 function keep(v,src){
   if(typeof v!=='string')return null;const s=v.trim();if(!s)return null;
   if(src.includes(s))return s;
@@ -239,7 +245,9 @@ ${S.cur?.q||''}
   const r=await askJSON('답 읽기',p);
   if(!r)return null;
   const out={type:TYPES.includes(r.type)?r.type:'충분',slots:emptySlots(),person:typeof r.person==='string'&&r.person!=='null'?r.person:null,next:r.next_slot,question:String(r.question||'').trim(),raw:r};
-  for(const k in SLOTS)out.slots[k]=(Array.isArray(r.slots?.[k])?r.slots[k]:[]).map(v=>keep(v,ans)).filter(Boolean);
+  for(const k in SLOTS)out.slots[k]=(Array.isArray(r.slots?.[k])?r.slots[k]:[]).map(v=>keep(v,ans)).filter(Boolean).map(trimTail);
+  // 2단계 첫 답은 '언제'에 대한 답이라, 모델이 때를 못 뽑았으면 답 자체를 때로 둔다 (넓어도 인정)
+  if(S.stage===2&&S.qa.length===0&&!out.slots.time.length&&!out.slots.place.length&&!RX.evade.test(ans)&&!RX.emotion.test(ans)&&ans.length<=30)out.slots.time=[trimTail(ans)];
   // 규칙 판정이 우선 (구현 메모: 규칙으로 싸게 거르고 애매한 건 LLM)
   if(RX.evade.test(ans)&&ans.length<25)out.type='회피';
   else if(S.stage===2&&RX.period.test(ans)&&!out.slots.place.length)out.type='범위 과대';
@@ -390,7 +398,7 @@ function fromUser(word,flat){
   if(GLUE.has(w)||w.length===1)return 'glue';
   const cands=[w];if(w.length>=3)cands.push(w.slice(0,-1));if(w.length>=4)cands.push(w.slice(0,-2));
   if(/다$/.test(w)){const st=w.slice(0,-1);cands.push(st+'어요',st+'요',st+'어');}
-  if(/(았|었|였)다$/.test(w)){const st=w.slice(0,-1);cands.push(st+'고',st+'는데');}
+  if(/(았|었|였)다$/.test(w)){const st=w.slice(0,-1);cands.push(st+'고',st+'는데',w.replace(/었다$/,'어').replace(/았다$/,'아').replace(/였다$/,'여'));}
   return cands.some(c=>c.length>=2&&flat.includes(c))?'mine':'new';
 }
 function markup(text){
@@ -401,7 +409,7 @@ function markup(text){
 
 /* ---------- 6단계: 퇴고 + 갬 ---------- */
 const sentenceTexts=()=>S.draft.sentences.map(s=>s.text);
-function ruleFlags(){const f=[];sentenceTexts().forEach((t,i)=>{if(RX.lesson.test(t))f.push({i,card:3});else if(RX.emotion.test(t)&&!srcText().includes(t.match(RX.emotion)[0]))f.push({i,card:1})});return f}
+function ruleFlags(){const f=[];sentenceTexts().forEach((t,i)=>{if(RX.lesson.test(t))f.push({i,card:3});else if(RX.emotion.test(t)&&!srcText().includes(t.match(RX.emotion)[0].slice(0,1)))f.push({i,card:1})});return f}
 async function checkDraft(){
   S.busy=true;render();
   const p=`너는 '내 안의 날씨' 앱의 퇴고 카드 '갬' 담당이다. 초안 문장 중 아래 원리에 걸리는 문장을 최대 2개 고른다. 고친 문장은 제안하지 않는다. 걸리는 문장이 없으면 빈 배열.
@@ -412,6 +420,10 @@ async function checkDraft(){
 5 사람을 설명함 (예: 할머니는 무뚝뚝하지만 속정이 깊은 분이셨다)
 6 큰 이야기 (예: 아버지와의 관계에 대해 쓰고 싶다)
 투박한 문장, 감정이 깃든 사물·행동 문장은 건드리지 않는다.
+사용자가 직접 한 말(아래 원문에 있는 표현, 예: '싫어서', '좋았어요')을 옮긴 문장은 원리에 걸려도 고르지 않는다. 카드는 AI가 보탠 말이나 사용자가 나중에 고친 문장을 위한 것이다.
+
+[사용자 원문]
+${S.qa.map(x=>x.a).join(' / ')}
 
 [초안 문장]
 ${sentenceTexts().map((t,i)=>`${i}: ${t}`).join('\n')}
