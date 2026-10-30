@@ -39,7 +39,9 @@ const DRAFT_GUIDE = `너는 '내 안의 날씨' 앱의 수필 작가다.
 
 // materials: [{k:'사건', v:'버스를 놓쳤어요'}, ...]  qa: [{q,a}]  removed: [조각]
 function buildDraftPrompt({ weather, materials, qa, removed = [], extra = '' }) {
-  const mat = [`마음의 날씨: ${weather || '(없음)'}`, ...materials.map(m => `${m.k}: ${m.v}`)];
+  const wx = weather && weather.length <= 6 ? new RegExp('(^|\\s)' + weather.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(이|가|은|는|을|를|도|에|가|만|$|\\s)') : null;
+  const tag = v => wx && wx.test(v) ? `${v}  ← 마음의 날씨(${weather})와 같은 말이 있음. 답 원문을 보고 비유면 쓰지 않고, 그 자리에서 실제로 겪은 날씨일 때만 쓴다` : v;
+  const mat = [`마음의 날씨: ${weather || '(없음)'}`, ...materials.map(m => `${m.k}: ${tag(m.v)}`)];
   if (extra) mat.push(`덧붙인 말: ${extra}`);
   return `${DRAFT_GUIDE}
 
@@ -117,10 +119,12 @@ function guideCheck(body, { answers = [], weather = '', mustHave = [], whenText 
   }
   const bodyFlat = flat(body);
   // 동사는 활용형이 달라지므로(놓쳤어요→놓친) 어미를 뗀 뒤 마지막 글자 하나를 더 떼서도 찾는다
-  const verbEnd = /(었어요|았어요|였어요|했어요|어요|아요|었다|았다|였다|했다|다)$/;
+  const verbEnd = /(었습니다|았습니다|였습니다|했습니다|습니다|었어요|았어요|였어요|했어요|어요|아요|었다|았다|였다|했다|던|기|다)$/;
   const stem = w => { const x = w.replace(/[^가-힣A-Za-z0-9]/g, ''); const verb = verbEnd.test(x); const st = x.replace(verbEnd, '').replace(/(이요|에서|으로|요|를|을|이|가|은|는|도|에|와|과|로|고|서)$/, ''); return { st, verb } };
   const hit = ({ st, verb }) => bodyFlat.includes(st) || (verb && st.length >= 2 && bodyFlat.includes(st.slice(0, -1)));
-  const miss = mustHave.filter(v => { const ws = String(v).split(/\s+/).map(stem).filter(w => w.st.length >= 1 && !/^(안|못|좀|더|잘|그|이|저|나|내)$/.test(w.st)); if (!ws.length) return false; const need = ws.length <= 2 ? ws.length : Math.ceil(ws.length / 2); return ws.filter(hit).length < need });
+  const wxRx = weather && weather.length <= 6 ? new RegExp('(^|\\s)' + weather.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(이|가|은|는|을|를|도|에|만|$|\\s)') : null;
+  mustHave = [...new Set(mustHave)].filter(v => !(wxRx && wxRx.test(v)));
+  const miss = mustHave.filter(v => { const ws = String(v).split(/\s+/).map(stem).filter(w => w.st.length >= 1 && !/^(안|못|좀|더|잘|그|이|저|나|내|것|같|듯|수|거|뿐|때|정말|너무|그냥|계속)$/.test(w.st)); if (!ws.length) return false; const need = ws.length <= 2 ? ws.length : Math.ceil(ws.length / 2); return ws.filter(hit).length < need });
   add('채워진 재료(사건·사물·감각)가 빠지지 않음', !miss.length, miss.length ? '빠진 것: ' + miss.join(' / ') : `${mustHave.length}개 모두 들어감`);
   const hasTitle = /^[^\n.!?…]{1,30}\n\n/.test(body);
   add('제목 없이 본문만', !hasTitle);
