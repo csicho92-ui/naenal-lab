@@ -41,8 +41,8 @@ export default async function handler(req, res) {
   };
   if (isGemini) {
     // Gemini 3 계열은 생각을 끌 수 없어 가장 낮게 둔다. 생각 토큰을 감안해 한도를 넉넉히
-    // 실험실에서 생각 단계를 고르면 그 값을, 아니면 가장 낮게 (거절되면 post()가 한 단계씩 올림)
-    body.reasoning_effort = ['minimal', 'low', 'medium', 'high'].includes(effort) ? effort : 'minimal';
+    // 실험실에서 고른 생각 단계를 쓰고, 없으면 초안은 high(10/30 비교: 비유를 실제 날씨로 쓰지 않음), 판독은 minimal
+    body.reasoning_effort = ['minimal', 'low', 'medium', 'high'].includes(effort) ? effort : (role === 'draft' ? 'high' : 'minimal');
     body.max_tokens = role === 'draft' ? 6000 : 2000;
   } else if (/deepseek-v4/i.test(model)) {
     // NVIDIA에서 DeepSeek V4는 생각 모드 옵션이 없으면 응답이 멈춘다고 보고됨
