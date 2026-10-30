@@ -331,64 +331,45 @@ function toCards(){
 }
 
 /* ---------- 5단계: 초안 + 출처 ---------- */
-function cardList(){return S.cards.filter(c=>!c.off).map(c=>`${c.id} [${SLOTS[c.slot]}] ${c.text}`).join('\n')+(S.extra?`\nc_extra [덧붙인 말] ${S.extra}`:'')}
-function draftPrompt(strict){return `너는 '내 안의 날씨' 앱의 초안 담당이다. 사용자가 답한 재료만으로 담백한 수필 초안을 엮는다. 너의 역할은 잘 쓰기가 아니라 말한 걸 읽을 수 있게 정리하기다.
-
-[원칙]
-1. 지어내지 않는다. 사실도 감정도 비유도 사용자가 말한 것만.
-2. 사용자 단어를 더 좋은 단어로 바꾸지 않는다. 해요체 어미를 해라체로 바꾸는 것(안 났어요→안 났다)과 조사만 손본다.
-3. 비유·수식어를 새로 넣지 않는다.
-4. 설명하지 않은 감정에 이름을 붙이지 않는다 ("외로웠던 시절"은 AI의 해석).
-5. 교훈으로 마무리하지 않는다.
-6. 문장을 매끄럽게 잇지 않는다. 투박한 말투가 여운을 남긴다.
-7. 1인칭 과거형, 재료를 대체로 순서대로, 5~10문장. 재료가 적으면 적은 대로.
-8. 모든 문장은 쓰인 재료 카드 id를 하나 이상 단다. 카드에 없는 내용의 문장은 쓰지 않는다.${strict?'\n9. 지난번 초안에 카드 없는 문장이 있었다. 이번엔 모든 문장이 카드에서 와야 한다.':''}
-
-[좋은 초안]
-재료: 2학년 가을 / 공대 비상계단 / 삼각김밥 / 학식을 혼자 먹기 싫어서 / 아무 소리도 안 났어요 / 그게 좋았어요
-초안: 2학년 가을이었다. 나는 학식을 혼자 먹기 싫어서 삼각김밥을 들고 공대 건물 비상계단에 올라갔다. 거기서는 아무 소리도 안 났다. 그게 좋았다.
-[나쁜 초안 — 이렇게 쓰면 실패]
-외로움이 깊던 대학 2학년 가을, 나는 쓸쓸한 마음을 달래려 비상계단을 찾았다. 그곳의 고요함은 지친 내 마음을 따뜻하게 감싸주었다.
-(외로움·쓸쓸한·지친·따뜻하게는 전부 사용자가 말하지 않은 단어)
-
-[이번 재료 카드]
-${cardList()}
-
-[참고: 대화 원문 — 맥락용. 카드에서 뺀 조각은 쓰지 않는다]
-${transcript()}
-
-설명 없이 JSON 하나만:
-{"sentences":[{"text":"문장","cards":["c1","c3"]}]}`}
+const DRAFT_LABEL={time:'언제',place:'어디',object:'사물',action:'사건',speech:'누군가의 말',sense:'감각',change:'그 후',other:'그 밖의 말'};
+function draftPromptV2(){
+  const materials=S.cards.filter(c=>!c.off).map(c=>({k:DRAFT_LABEL[c.slot],v:c.text}));
+  return buildDraftPrompt({weather:S.weather,materials,qa:S.qa,removed:S.cards.filter(c=>c.off).map(c=>c.text),extra:S.extra});
+}
+function toSentences(body){const out=[];body.split(/\n\s*\n/).forEach((para,p)=>{para.replace(/\n/g,' ').split(/(?<=[.!?…]["”]?)\s+/).map(x=>x.trim()).filter(Boolean).forEach(text=>out.push({text,p}))});return out}
+function mustHaveV2(){return S.cards.filter(c=>!c.off&&['object','action','sense'].includes(c.slot)).map(c=>c.text)}
+function checksFor(body){return guideCheck(body,{answers:S.qa.map(x=>x.a).concat(S.extra?[S.extra]:[]),weather:S.weather,mustHave:mustHaveV2()})}
 async function makeDraft(kind){
   S.phase='drafting';S.busy=true;render();
-  const ids=new Set(S.cards.filter(c=>!c.off).map(c=>c.id).concat(S.extra?['c_extra']:[]));
   const tried=new Set();let model=CFG.draft,out=null,err=null;
-  for(let attempt=0;attempt<2&&!out;attempt++){
-    const strict=attempt===1;
-    for(let i=0;i<4;i++){
-      try{
-        const t=performance.now();
-        const j=parseJSON(await streamLLM(draftPrompt(strict),model));
-        const sents=(Array.isArray(j.sentences)?j.sentences:[]).map(s=>({text:String(s.text||'').trim(),cards:(Array.isArray(s.cards)?s.cards:[]).map(String).filter(x=>ids.has(x))})).filter(s=>s.text);
-        if(!sents.length)throw {code:'empty',message:'문장이 없어요'};
-        const orphan=sents.filter(s=>!s.cards.length);
-        const u=USAGE[USAGE.length-1]||{};
-        const d={sentences:sents,model,at:new Date().toISOString(),ms:Math.round(performance.now()-t),tin:u.in,tout:u.out,kind:kind+(strict?' (자동 재생성)':''),orphan:orphan.length};
-        if(orphan.length&&!strict){S.drafts.unshift({...d,discarded:true});ev(`초안에 카드 없는 문장 ${orphan.length}개 → 지어낸 문장으로 보고 자동 재생성`,'drop');break}
-        out=d;break;
-      }catch(e){
-        err=e;
-        if(e.code==='model_unavailable'||e.code==='rate_limited'||e.code==='no_response'){tried.add(model);const alt=pickModel(DRAFT_PREF,tried);if(alt){ev(`초안: "${model}" ${e.code} → "${alt}"`,'fail');model=alt;continue}}
-        ev(`초안 실패 (${e.code}) ${String(e.message||'').slice(0,160)}`,'fail');break;
-      }
+  for(let i=0;i<4&&!out;i++){
+    try{
+      const t=performance.now();
+      const c=cleanDraft(await streamLLM(draftPromptV2(),model));
+      if(!c.body)throw {code:'empty',message:'본문이 비어 있어요'};
+      if(c.strippedTitle)ev(`지침과 달리 제목을 붙여서 뗐어요: "${c.strippedTitle}"`,'drop');
+      const u=USAGE[USAGE.length-1]||{};
+      out={sentences:toSentences(c.body),model,at:new Date().toISOString(),ms:Math.round(performance.now()-t),tin:u.in,tout:u.out,kind,strippedTitle:c.strippedTitle};
+      out.checks=checksFor(c.body);
+    }catch(e){
+      err=e;
+      if(e.code==='model_unavailable'||e.code==='rate_limited'||e.code==='no_response'){tried.add(model);const alt=pickModel(DRAFT_PREF,tried);if(alt){ev(`초안: "${model}" ${e.code} → "${alt}"`,'fail');model=alt;continue}}
+      ev(`초안 실패 (${e.code}) ${String(e.message||'').slice(0,160)}`,'fail');break;
     }
-    if(err&&!out&&!S.drafts.length)break;
   }
   S.busy=false;
   if(!out){S.draftErr=err?`${err.code} ${String(err.message||'').slice(0,100)}`:'초안을 만들지 못했어요';S.phase='cards';return render()}
+  const bad=out.checks.filter(c=>c.level==='bad');
+  ev(`초안 (${out.model}) ${draftText(out).length}자 · 지침 어김 ${bad.length}${bad.length?': '+bad.map(c=>c.rule).join(', '):''}`);
   S.draftErr=null;S.draft=out;S.drafts.unshift(out);S.rev=null;S.phase='draft';save();render();
 }
-function draftText(d=S.draft){return d.sentences.map(s=>s.text).join(' ')}
+async function factCheck(){
+  S.busy=true;render();
+  const r=await askJSON('사실 점검',factCheckPrompt(draftText(),S.qa));
+  S.draft.fact=r?{issues:(Array.isArray(r.issues)?r.issues:[]).filter(x=>x&&x.sentence)}:{err:'응답 없음'};
+  S.busy=false;ev(`사실 점검: ${S.draft.fact.err||S.draft.fact.issues.length+'개'}`);save();render();
+}
+function draftText(d=S.draft){const ps=[];for(const x of d.sentences)(ps[x.p||0]=ps[x.p||0]||[]).push(x.text);return ps.filter(Boolean).map(p=>p.join(' ')).join('\n\n')}
 
 /* 출처 표시: 사용자 원문에서 온 어절에 밑줄 */
 const GLUE=new Set(['나는','나도','나','내가','내','그','그때','그때는','그날','그날은','거기','거기서','거기서는','거기에','그리고','그런데','그래서','그곳','그곳에서','이었다','였다','했다','있었다','없었다','있다','없다','것','것이다','수','또','다시']);
@@ -438,7 +419,7 @@ ${sentenceTexts().map((t,i)=>`${i}: ${t}`).join('\n')}
 }
 
 /* ---------- 7단계: 저장 + 날씨 기록 ---------- */
-function finalText(){return S.draft.sentences.map(s=>s.text).join(' ')}
+function finalText(){return draftText()}
 function saveEssay(){
   const title=(S.title||'').trim()||(S.cards[0]?.text||'').split(/\s+/).slice(0,3).join(' ');
   const shelf=store.get(K.shelf,[]);
@@ -451,14 +432,15 @@ function runRecord(title){
   const d=S.draft;const m=markup(finalText());const sum=(f)=>USAGE.filter(f).reduce((a,x)=>({in:a.in+x.in,out:a.out+x.out}),{in:0,out:0});
   return {at:new Date().toISOString(),title,weather:S.weather,qa:S.qa,endReason:S.endReason,q2:S.qa.filter(x=>x.stage===2).length,q3:S.q3,
     activeMin:+(S.activeMs/60000).toFixed(1),cards:S.cards.map(c=>({slot:SLOTS[c.slot],text:c.text,off:c.off})),extra:S.extra,
-    draft:d?{model:d.model,first:S.drafts.filter(x=>!x.discarded).slice(-1)[0]?.sentences.map(s=>s.text).join(' '),final:finalText(),sentences:d.sentences.length,orphanRegen:S.drafts.some(x=>x.discarded)}:null,
-    chars:finalText().replace(/\s/g,'').length,newRatio:m.words?Math.round(m.news.length/m.words*100):0,news:m.news,
+    draft:d?{model:d.model,first:draftText(S.drafts[S.drafts.length-1]),final:finalText(),sentences:d.sentences.length,checks:checksFor(finalText()).filter(c=>c.level!=='ok'),fact:d.fact||null}:null,
+    chars:finalText().length,newRatio:m.words?Math.round(m.news.length/m.words*100):0,news:m.news,
     gam:(S.rev?.flags||[]).map(f=>({sentence:f.i+1,card:CARDS[f.card-1].t,choice:f.state})),
     tokens:{read:sum(x=>x.role!=='draft'),draft:sum(x=>x.role==='draft')},models:{read:CFG.extract,draft:d?.model}};
 }
-function recordText(r){return `## ${r.title} (v2 플로우 문서 기준)
+function recordText(r){return `## ${r.title} (v2 플로우 문서 + 초안 지침 10/30)
 - 날씨 ${r.weather} · 질문 2단계 ${r.q2} + 3단계 ${r.q3} · 종료: ${r.endReason} · 쓴 시간(대기 제외) ${r.activeMin}분
-- 초안 ${r.chars}자, ${r.draft?.sentences}문장 · 답에 없는 말 ${r.newRatio}%${r.news.length?' ('+r.news.join(', ')+')':''}${r.draft?.orphanRegen?' · 카드 없는 문장으로 자동 재생성 있었음':''}
+- 초안 ${r.chars}자(공백 포함), ${r.draft?.sentences}문장 · 답에서 찾지 못한 말 ${r.newRatio}%${r.news.length?' ('+r.news.join(', ')+')':''}
+- 지침 점검: ${(r.draft?.checks||[]).map(c=>(c.level==='bad'?'✕ ':'? ')+c.rule+(c.detail?' — '+c.detail:'')).join(' / ')||'어김 없음'}${r.draft?.fact?.issues?' · 사실 점검: '+(r.draft.fact.issues.map(x=>x.kind+' "'+x.sentence+'"').join(' / ')||'문제 없음'):''}
 - 갬: ${r.gam.length?r.gam.map(g=>`${g.sentence}번 문장 "${g.card}" → ${g.choice}`).join(' / '):'없음'}
 - 모델 판독 ${r.models.read} / 초안 ${r.models.draft} · 토큰 판독 ${r.tokens.read.in}/${r.tokens.read.out}, 초안 ${r.tokens.draft.in}/${r.tokens.draft.out}
 
@@ -536,17 +518,17 @@ function render(){
   if(P==='draft'||P==='revise'){
     const flags=P==='revise'?S.rev.flags:[];
     const m=markup(draftText());
-    h+=`${stepBar(P==='draft'?5:6)}<div class="eyebrow">${P==='draft'?'초안 · 밑줄은 내가 한 말':'퇴고 · 갬'}</div>
-    <article class="draft" style="margin-top:12px">${S.draft.sentences.map((s,i)=>{
+    h+=`${stepBar(P==='draft'?5:6)}<div class="eyebrow">${P==='draft'?'초안 · 밑줄은 내가 한 말, 노랑은 AI가 보탠 말':'퇴고 · 갬'}</div>
+    <article class="draft" style="margin-top:12px">${(()=>{const ps=[];S.draft.sentences.forEach((s,i)=>{
       const f=flags.find(x=>x.i===i);
-      if(f&&f.state==='editing')return `<textarea class="edit" id="edit-${i}" rows="2">${esc(s.text)}</textarea>`;
-      const mk=markup(s.text).html;
-      return `<span class="sent ${f&&f.state==='open'?'flagged':''}" title="카드 ${s.cards.join(', ')}">${mk}</span> `;}).join('')}</article>
+      const html=f&&f.state==='editing'?`<textarea class="edit" id="edit-${i}" rows="2">${esc(s.text)}</textarea>`:`<span class="sent ${f&&f.state==='open'?'flagged':''}">${markup(s.text).html}</span> `;
+      (ps[s.p||0]=ps[s.p||0]||[]).push(html)});return ps.filter(Boolean).map(p=>`<p>${p.join('')}</p>`).join('')})()}</article>
+    ${P==='draft'?(S.draft.checks?guideHTML(checksFor(draftText()),esc):'')+(S.draft.fact?factHTML(S.draft.fact,esc):`<div class="row"><button id="b-fact" ${S.busy?'disabled':''}>${S.busy?'점검 중…':'사실 점검 (AI)'}</button></div>`):''}
     ${flags.map(f=>gamCard(f)).join('')}
     <div class="stats">
-      <div class="stat"><span>글자 수</span><strong>${draftText().replace(/\s/g,'').length}</strong></div>
+      <div class="stat"><span>글자 수 (공백 포함)</span><strong>${draftText().length}</strong></div>
       <div class="stat"><span>문장</span><strong>${S.draft.sentences.length}</strong></div>
-      <div class="stat ${m.words&&m.news.length/m.words>.15?'bad':'good'}"><span>답에 없는 말</span><strong>${m.words?Math.round(m.news.length/m.words*100):0}%</strong></div>
+      <div class="stat"><span>답에서 찾지 못한 말</span><strong>${m.words?Math.round(m.news.length/m.words*100):0}%</strong></div>
       <div class="stat"><span>쓴 시간(대기 제외)</span><strong>${(S.activeMs/60000).toFixed(1)}분</strong></div>
     </div>
     ${m.news.length?`<p class="note">답에서 찾지 못한 말: ${m.news.map(esc).join(', ')}</p>`:''}
@@ -558,7 +540,7 @@ function render(){
     h+=`${stepBar(7)}<p class="bigq">제목을 붙여볼까요? <span class="note">(비워도 괜찮아요)</span></p>
     <input type="text" id="title" value="${esc(S.title)}" placeholder="${esc(ph)}">
     <p class="wxline">${wxIcon(S.weather,22)} ${esc(S.weather)} · ${new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'})}</p>
-    <article class="draft">${esc(finalText())}</article>
+    <article class="draft">${finalText().split(/\n\s*\n/).map(p=>`<p>${esc(p)}</p>`).join('')}</article>
     <div class="row"><button class="primary" id="b-save">저장</button><button class="quiet" id="b-back">퇴고로 돌아가기</button></div>`;
   }
   if(P==='shelf'){
@@ -582,7 +564,7 @@ function shelfHTML(){
   return `<h2 class="shelf-h">내 안의 날씨</h2>
   <div class="wxmap">${Object.keys(mm).sort().reverse().map(k=>`<div class="wxrow"><span>${+k.slice(5)}월</span><span class="wxicons">${mm[k].map(e=>`<span title="${esc(e.title)}">${wxIcon(e.weather,24)}</span>`).join('')}</span></div>`).join('')||'<p class="note">아직 쌓인 날씨가 없어요.</p>'}</div>
   ${ago?`<div class="ago"><p class="eyebrow">${today.getFullYear()-new Date(ago.date).getFullYear()}년 전 오늘, 당신은 이렇게 썼습니다</p><p class="draft">${esc(ago.text.split(/(?<=다\.)\s/)[0])}</p></div>`:''}
-  <div class="shelf">${list.map(e=>`<details class="book" ${e.id===S.savedId?'open':''}><summary>${wxIcon(e.weather,18)} <b>${esc(e.title)}</b> <span class="note">${new Date(e.date).toLocaleDateString('ko-KR')}</span></summary><p class="draft">${esc(e.text)}</p></details>`).join('')}</div>`;
+  <div class="shelf">${list.map(e=>`<details class="book" ${e.id===S.savedId?'open':''}><summary>${wxIcon(e.weather,18)} <b>${esc(e.title)}</b> <span class="note">${new Date(e.date).toLocaleDateString('ko-KR')}</span></summary><div class="draft">${e.text.split(/\n\s*\n/).map(p=>`<p>${esc(p)}</p>`).join('')}</div></details>`).join('')}</div>`;
 }
 function shelfMini(){const n=store.get(K.shelf,[]).length;return n?`<p class="note" style="margin-top:20px">책꽂이에 ${n}편이 있어요. <button class="quiet" id="b-shelf">날씨 기록 보기</button></p>`:''}
 function settingsHTML(){
@@ -617,6 +599,7 @@ function bind(){
   on('b-draft',()=>{S.tDraft=S.activeMs;makeDraft('첫 초안')});
   on('b-regen',()=>{S.regenUsed=true;makeDraft('다시 쓰기')});
   on('b-backcards',()=>{S.phase='cards';render()});
+  on('b-fact',factCheck);
   on('b-check',checkDraft);on('b-recheck',checkDraft);
   document.querySelectorAll('[data-gam-edit]').forEach(b=>b.onclick=()=>{S.rev.flags.find(f=>f.i==b.dataset.gamEdit).state='editing';render();$('#edit-'+b.dataset.gamEdit)?.focus()});
   document.querySelectorAll('[data-gam-save]').forEach(b=>b.onclick=()=>{const i=+b.dataset.gamSave;const v=$('#edit-'+i).value.trim();const f=S.rev.flags.find(x=>x.i===i);const before=S.draft.sentences[i].text;if(v){S.draft.sentences[i].text=v}f.state='edited';S.rev.log.push({i,before,after:v});ev(`갬: ${i+1}번 문장 직접 고침`);save();render()});

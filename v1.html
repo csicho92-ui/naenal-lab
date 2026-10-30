@@ -112,7 +112,7 @@ details.hist summary{cursor:pointer;font-size:13px;color:var(--ink-2)}
 </head>
 <body>
 <header class="top">
-  <h1>내 안의 날씨 실험실 <span class="note">v1 · 2·3단계 로직 문서 기준 · <a href="/">v2로</a></span></h1>
+  <h1>내 안의 날씨 실험실 <span class="note">v1 · 2·3단계 로직 문서 + 초안 지침(10/30) · <a href="/">v2로</a></span></h1>
   <div class="modelbar" id="modelbar" aria-live="polite"></div>
 </header>
 <div class="wrap">
@@ -120,6 +120,7 @@ details.hist summary{cursor:pointer;font-size:13px;color:var(--ink-2)}
   <aside class="log" id="log"></aside>
 </div>
 
+<script src="draft-guide.js"></script>
 <script>
 /* ---------- 기본값 ---------- */
 const WEATHERS=['맑음','흐림','비','눈','바람','안개','갠 뒤 추움','해 나는데 비'];
@@ -390,47 +391,16 @@ async function makeDraft(again,model=CFG.draft){
   const removed=[...S.removed];
   const qa=allQA().filter(x=>!x.btn).map(x=>`Q: ${x.q}\nA: ${x.a}`).join('\n');
   const slot=k=>S.s3[k].vals.filter(v=>!S.removed.has(v)).join(' / ')||'(없음)';
-  const p=`너는 '내 안의 날씨' 앱의 초안 엮기 담당이다. 사용자가 질문에 답한 말만으로 짧은 글 한 편을 엮는다. AI는 대신 쓰지 않는다.
-
-[규칙]
-1. 사용자의 답에 있는 단어만 쓴다. 단어를 더 좋은 단어로 바꾸지 않는다.
-2. 바꿔도 되는 것: 해요체 어미를 해라체로(안 났어요→안 났다, 좋았어요→좋았다), 조사, 문장을 잇는 최소한의 말(나는, 그리고, 거기서).
-3. 금지: 비유, 꾸밈말 보태기, 사용자가 하지 않은 감정 이름 붙이기(외로웠다, 쓸쓸했다 등), 교훈이나 깨달음으로 마무리하기, 답에 없는 사람·사물·장소·고유명사·숫자 보태기.
-4. 사용자가 직접 말한 감정어는 그 말 그대로만 쓸 수 있다.
-5. 질문 문구의 말은 글에 쓰지 않는다. 질문은 답의 맥락만 알려 준다.
-6. "모르겠어요", "뭐라고요?", "그만할래요" 같은 진행용 답과 의미 없는 입력은 쓰지 않는다.
-7. 1인칭 과거형. 답 순서를 대체로 따르되 한 장면으로 이어지게 놓는다. 최대 1,600자. 재료가 적으면 짧게 끝낸다. 길이를 늘리려고 말을 보태지 않는다.
-8. '빼기로 한 조각'은 글에 쓰지 않는다.
-9. 날씨는 사용자가 고른 그날의 실제 날씨다. 넣는다면 고른 이름 그대로만 쓴다.
-10. 제목은 사용자의 말에서 그대로 따온 짧은 구절로 한다.
-
-[대비 예]
-답: 대학교 2학년 가을이요 / 공대 건물 비상계단이요 / 밥 먹었어요 / 삼각김밥이요. 학식을 혼자 먹기 싫어서. / 아무 소리도 안 났어요. 그게 좋았어요.
-좋은 초안: 2학년 가을이었다. 나는 학식을 혼자 먹기 싫어서 공대 건물 비상계단에서 삼각김밥을 먹었다. 거기서는 아무 소리도 안 났다. 그게 좋았다.
-나쁜 초안: 외로움이 깊던 가을, 그곳의 고요함은 지친 내 마음을 감싸주었다. (외로움, 고요함, 지친, 감싸다는 사용자가 하지 않은 말)
-
-[이번 재료]
-날씨: ${S.weather}
-언제: ${S.scene.time}
-어디: ${S.scene.place}
-사건: ${slot('event')}
-사물: ${slot('object')}
-감각: ${slot('sense')}${S.mode==='ext'?`
-타인의 말: ${slot('speech')}
-그 후: ${slot('after')}`:''}
-빼기로 한 조각: ${removed.join(' / ')||'(없음)'}
-덧붙인 말: ${S.extra||'(없음)'}
-
-[질문과 답, 순서대로]
-${qa}${S.extra?`\nA(재료 확인에서 덧붙임): ${S.extra}`:''}
-
-JSON 하나만 출력: {"title": 문자열, "body": 문자열}  body의 문단 사이는 \\n\\n.`;
+  const LABEL={event:'사건',object:'사물',sense:'감각',speech:'누군가의 말',after:'그 후'};
+  const materials=[{k:'언제',v:S.scene.time},{k:'어디',v:S.scene.place}];
+  for(const k of ORDER)for(const v of S.s3[k].vals)if(!S.removed.has(v))materials.push({k:LABEL[k],v});
+  const p=buildDraftPrompt({weather:S.weather,materials,qa:allQA().filter(x=>!x.btn),removed,extra:S.extra});
   busy(true);go(S.drafts.length?'draft':'drafting');
   const t=performance.now();
   try{
     let raw;const tried=new Set();
     for(let k=0;;k++){
-      try{S.streamText='';raw=await streamLLM(p,model,txt=>{S.streamText=txt;const el=document.getElementById('streamOut');if(el)el.textContent=txt.replace(/^[\s\S]*?"body"\s*:\s*"/,'').replace(/\\n/g,'\n').replace(/"\s*}\s*`*\s*$/,'')||'생각하는 중…'});break}
+      try{S.streamText='';raw=await streamLLM(p,model,txt=>{S.streamText=txt;const el=document.getElementById('streamOut');if(el)el.textContent=txt||'생각하는 중…'});break}
       catch(e){
         if(e.code==='model_unavailable'&&k<4&&model===CFG.draft&&swapModel('draft')){model=CFG.draft;continue}
         // 한도 초과: 이번 초안만 다음 추천 모델로 넘김 (설정은 그대로, 쓸 수 없는 모델로 치지 않음)
@@ -441,9 +411,12 @@ JSON 하나만 출력: {"title": 문자열, "body": 문자열}  body의 문단 �
         }
         throw e}
     }
-    const r=parseJSON(raw);
+    const c=cleanDraft(raw);
+    if(!c.body)throw {code:'empty',message:'본문이 비어 있어요'};
+    if(c.strippedTitle)ev(`지침과 달리 제목을 붙여서 뗐어요: "${c.strippedTitle}"`,'drop');
     const u=USAGE[USAGE.length-1]||{};
-    S.draft={title:String(r.title||''),body:String(r.body||''),at:new Date().toISOString(),model,tin:u.in,tout:u.out,ms:u.ms};
+    S.draft={title:'',body:c.body,strippedTitle:c.strippedTitle,at:new Date().toISOString(),model,tin:u.in,tout:u.out,ms:u.ms};
+    S.draft.checks=guideCheck(S.draft.body,{answers:allQA().filter(x=>!x.btn).map(x=>x.a).concat(S.extra?[S.extra]:[]),weather:S.weather,mustHave:['event','object','sense'].flatMap(k=>S.s3[k].vals.filter(v=>!S.removed.has(v)))});
     S.drafts.unshift(S.draft);
     ev(`초안 생성 (${model}) ${((performance.now()-t)/1000).toFixed(1)}초, 입력 ${u.in} / 출력 ${u.out} 토큰`);
     saveRun();go('draft');
@@ -485,13 +458,13 @@ function runRecord(d=S.draft){
     extractIn:USAGE.filter(x=>x.role!=='draft').reduce((n,x)=>n+x.in,0),extractOut:USAGE.filter(x=>x.role!=='draft').reduce((n,x)=>n+x.out,0),extractCalls:USAGE.filter(x=>x.role!=='draft').length,
     q2:S.s2.answers.length,q3:S.s3.answers.length,mins,mode:S.mode||'base',chars:a.chars,
     slots:Object.fromEntries(ORDER.map(k=>[k,S.s3[k].vals])),
-    qa:allQA(),title:d.title,body:d.body,
+    qa:allQA(),title:d.title,body:d.body,checks:d.checks,fact:d.fact,
     newWords:a.news,flags:a.flags,newRatio:a.words?(a.news.length/a.words):0};
 }
 function loadRuns(){try{return JSON.parse(localStorage.getItem('naenal-runs')||'[]')}catch(e){return[]}}
 function saveRun(){try{const r=loadRuns();r.unshift(runRecord());localStorage.setItem('naenal-runs',JSON.stringify(r.slice(0,30)))}catch(e){}}
 function recordText(r){
-  return `## ${r.title||'(제목 없음)'}
+  return `## ${r.title||((r.scene?.time||'')+' · '+(r.scene?.place||''))}
 - 날씨: ${r.weather} / 언제: ${r.scene.time} / 어디: ${r.scene.place}
 - 질문 수: 2단계 ${r.q2}, 3단계 ${r.q3} / 초안까지 ${r.mins!=null?r.mins.toFixed(1)+'분':'-'}
 - 초안 모델: ${r.model||'-'} (입력 ${r.tin??'-'} / 출력 ${r.tout??'-'} 토큰)
@@ -503,6 +476,9 @@ function recordText(r){
 
 ### 질문과 답
 ${r.qa.map(x=>`- Q. ${x.q}\n  A. ${x.a}`).join('\n')}
+
+### 지침 점검
+${(r.checks||[]).filter(c=>c.level!=='ok').map(c=>`- ${c.level==='bad'?'✕':'?'} ${c.rule}${c.detail?' — '+c.detail:''}`).join('\n')||'- 어김 없음'}${r.fact&&r.fact.issues?'\n'+(r.fact.issues.map(x=>`- ✕ ${x.kind}: ${x.sentence}`).join('\n')||'- 사실 점검: 문제 없음'):''}
 
 ### 초안
 ${r.body}
@@ -591,10 +567,12 @@ function render(){
       const a=analyse(d.body);const ratio=a.words?Math.round(a.news.length/a.words*100):0;
       h+=`<section style="border-top:1px solid var(--line);padding-top:18px;margin-top:18px">
       <div class="eyebrow">${i===0?'최근 초안':'이전 초안'} · ${esc(d.model)}</div>
-      <article class="draft" style="margin-top:10px"><h2>${esc(d.title)}</h2>${a.html}</article>
+      <article class="draft" style="margin-top:10px">${a.html}</article>
+      ${d.checks?guideHTML(d.checks,esc):''}
+      ${d.fact?factHTML(d.fact,esc):`<div class="row"><button data-fact="${i}" ${S.busy?'disabled':''}>사실 점검 (AI)</button></div>`}
       <div class="stats">
         <div class="stat"><span>글자 수</span><strong>${a.chars}</strong></div>
-        <div class="stat ${ratio>15?'bad':'good'}"><span>답에 없는 말</span><strong>${ratio}%</strong></div>
+        <div class="stat"><span>답에서 찾지 못한 말</span><strong>${ratio}%</strong></div>
         <div class="stat ${a.flags.length?'bad':'good'}"><span>답에 없는 숫자</span><strong>${a.flags.length}</strong></div>
         <div class="stat"><span>토큰 입력/출력</span><strong>${d.tin??'-'}/${d.tout??'-'}</strong></div>
         <div class="stat"><span>생성 시간</span><strong>${d.ms?(d.ms/1000).toFixed(1)+'초':'-'}</strong></div>
@@ -651,6 +629,9 @@ function bind(){
   document.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{const v=b.dataset.rm;S.removed.has(v)?S.removed.delete(v):S.removed.add(v);S.extra=$('#extra').value;render()});
   const ex=$('#extra');if(ex)ex.oninput=()=>S.extra=ex.value;
   on('b-draft',()=>{S.draftErr=null;makeDraft(false)});
+  document.querySelectorAll('[data-fact]').forEach(b=>b.onclick=async()=>{const d=S.drafts[+b.dataset.fact];b.disabled=true;b.textContent='점검 중…';
+    try{const r=await withRetry('사실 점검',()=>callJSON(factCheckPrompt(d.body,allQA().filter(x=>!x.btn)),'extract'));d.fact=r?{issues:(Array.isArray(r.issues)?r.issues:[]).filter(x=>x&&x.sentence)}:{err:'응답 없음'}}catch(e){d.fact={err:e.code||'오류'}}
+    ev(`사실 점검: ${d.fact.err||d.fact.issues.length+'개'}`);render()});
   on('b-cmp',()=>{const v=$('#cmpModel').value.trim();if(v){S.draftErr=null;makeDraft(true,v)}});
   on('b-copy',e=>copyText(S.drafts.map(d=>recordText(runRecord(d))).join('\n---\n\n'),e.currentTarget));
   document.querySelectorAll('[data-dcopy]').forEach(b=>b.onclick=()=>copyText(recordText(runRecord(S.drafts[+b.dataset.dcopy])),b));
