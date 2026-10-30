@@ -416,7 +416,7 @@ async function makeDraft(again,model=CFG.draft){
     if(c.strippedTitle)ev(`지침과 달리 제목을 붙여서 뗐어요: "${c.strippedTitle}"`,'drop');
     const u=USAGE[USAGE.length-1]||{};
     S.draft={title:'',body:c.body,strippedTitle:c.strippedTitle,at:new Date().toISOString(),model,tin:u.in,tout:u.out,ms:u.ms};
-    S.draft.checks=guideCheck(S.draft.body,{answers:allQA().filter(x=>!x.btn).map(x=>x.a).concat(S.extra?[S.extra]:[]),weather:S.weather,mustHave:['event','object','sense'].flatMap(k=>S.s3[k].vals.filter(v=>!S.removed.has(v)))});
+    S.draft.checks=guideCheck(S.draft.body,{answers:allQA().filter(x=>!x.btn).map(x=>x.a).concat(S.extra?[S.extra]:[]),weather:S.weather,whenText:S.scene.time,mustHave:['event','object','sense'].flatMap(k=>S.s3[k].vals.filter(v=>!S.removed.has(v)))});
     S.drafts.unshift(S.draft);
     ev(`초안 생성 (${model}) ${((performance.now()-t)/1000).toFixed(1)}초, 입력 ${u.in} / 출력 ${u.out} 토큰`);
     saveRun();go('draft');

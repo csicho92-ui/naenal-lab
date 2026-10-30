@@ -338,7 +338,7 @@ function draftPromptV2(){
 }
 function toSentences(body){const out=[];body.split(/\n\s*\n/).forEach((para,p)=>{para.replace(/\n/g,' ').split(/(?<=[.!?…]["”]?)\s+/).map(x=>x.trim()).filter(Boolean).forEach(text=>out.push({text,p}))});return out}
 function mustHaveV2(){return S.cards.filter(c=>!c.off&&['object','action','sense'].includes(c.slot)).map(c=>c.text)}
-function checksFor(body){return guideCheck(body,{answers:S.qa.map(x=>x.a).concat(S.extra?[S.extra]:[]),weather:S.weather,mustHave:mustHaveV2()})}
+function checksFor(body){return guideCheck(body,{answers:S.qa.map(x=>x.a).concat(S.extra?[S.extra]:[]),weather:S.weather,whenText:(S.cards.find(c=>c.slot==='time')||{}).text||'',mustHave:mustHaveV2()})}
 async function makeDraft(kind){
   S.phase='drafting';S.busy=true;render();
   const tried=new Set();let model=CFG.draft,out=null,err=null;

@@ -82,7 +82,7 @@ function sentencesOf(body) { return body.split(/\n+/).flatMap(p => p.split(/(?<=
 function quotesOf(body) { return [...body.matchAll(/["“]([^"”]+)["”]/g)].map(m => m[1].trim()) }
 
 // 지침 점검: [{rule, ok, level:'ok'|'warn'|'bad', detail}]
-function guideCheck(body, { answers = [], weather = '', mustHave = [] }) {
+function guideCheck(body, { answers = [], weather = '', mustHave = [], whenText = '' }) {
   const src = answers.join(' '), srcFlat = flat(src), sents = sentencesOf(body), out = [];
   const add = (rule, ok, detail = '', level) => out.push({ rule, ok, level: level || (ok ? 'ok' : 'bad'), detail });
   const len = body.length, lenNs = body.replace(/\s/g, '').length;
@@ -106,6 +106,7 @@ function guideCheck(body, { answers = [], weather = '', mustHave = [] }) {
   if (qs.length) add('원칙 5 · 대사는 따로 한 줄', quoteLine, quoteLine ? '' : '대사가 문장 속에 있음');
   if (/라고 (했|하셨|말)|라며|고 하셨어요|고 했어요/.test(src) && !qs.length)
     add('원칙 5 · 답에 옮긴 말이 있으면 대사로 세움', false, '답에 누군가의 말이 있는데 대사가 없음', 'warn');
+  if (whenText) { const ws = String(whenText).split(/\s+/).map(w => w.replace(/[^가-힣A-Za-z0-9]/g, '')).filter(w => w.length >= 2); const f0 = flat(sents[0] || ''); const starts = ws.length > 0 && ws.every(w => f0.includes(w)); add('굳은 틀 · 재료 순서대로("언제"부터) 시작하지 않음', !starts, starts ? sents[0] : '', starts ? 'warn' : 'ok') }
   add('굳은 틀 · "~날이었다"로 시작하지 않음', !GUIDE_RX.stiffOpen.test(sents[0] || ''), sents[0] || '');
   add('굳은 틀 · 짐작으로 끝내지 않음', !GUIDE_RX.guess.test(last), GUIDE_RX.guess.test(last) ? last : '');
   if (weather) {
@@ -115,8 +116,11 @@ function guideCheck(body, { answers = [], weather = '', mustHave = [] }) {
     add('날씨 · 한 번 이하, "○○ 같았던" 없음', !stiff && (inAnswers || weather.length < 2 || n <= 1), stiff ? '굳은 표현 있음' : inAnswers ? '답에도 나온 말이라 횟수는 세지 않음' : (n ? `${n}번` : '넣지 않음'));
   }
   const bodyFlat = flat(body);
-  const stem = w => { let x = w.replace(/[^가-힣A-Za-z0-9]/g, ''); x = x.replace(/(었어요|았어요|였어요|했어요|어요|아요|이요|에서|으로|요|를|을|이|가|은|는|도|에|와|과|로|고|서|다)$/, ''); return x };
-  const miss = mustHave.filter(v => { const ws = String(v).split(/\s+/).map(stem).filter(w => w.length >= 1 && !/^(안|못|좀|더|잘|그|이|저|나|내)$/.test(w)); if (!ws.length) return false; const need = ws.length <= 2 ? ws.length : Math.ceil(ws.length / 2); return ws.filter(w => bodyFlat.includes(w)).length < need });
+  // 동사는 활용형이 달라지므로(놓쳤어요→놓친) 어미를 뗀 뒤 마지막 글자 하나를 더 떼서도 찾는다
+  const verbEnd = /(었어요|았어요|였어요|했어요|어요|아요|었다|았다|였다|했다|다)$/;
+  const stem = w => { const x = w.replace(/[^가-힣A-Za-z0-9]/g, ''); const verb = verbEnd.test(x); const st = x.replace(verbEnd, '').replace(/(이요|에서|으로|요|를|을|이|가|은|는|도|에|와|과|로|고|서)$/, ''); return { st, verb } };
+  const hit = ({ st, verb }) => bodyFlat.includes(st) || (verb && st.length >= 2 && bodyFlat.includes(st.slice(0, -1)));
+  const miss = mustHave.filter(v => { const ws = String(v).split(/\s+/).map(stem).filter(w => w.st.length >= 1 && !/^(안|못|좀|더|잘|그|이|저|나|내)$/.test(w.st)); if (!ws.length) return false; const need = ws.length <= 2 ? ws.length : Math.ceil(ws.length / 2); return ws.filter(hit).length < need });
   add('채워진 재료(사건·사물·감각)가 빠지지 않음', !miss.length, miss.length ? '빠진 것: ' + miss.join(' / ') : `${mustHave.length}개 모두 들어감`);
   const hasTitle = /^[^\n.!?…]{1,30}\n\n/.test(body);
   add('제목 없이 본문만', !hasTitle);
