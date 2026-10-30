@@ -152,7 +152,7 @@ let S;
 /* 설정: 이 브라우저에만 저장 */
 const CFG={pass:'',extract:'',draft:'',models:[],mode:'base'};
 try{Object.assign(CFG,JSON.parse(localStorage.getItem('naenal-cfg')||'{}'))}catch(e){}
-function saveCfg(){try{localStorage.setItem('naenal-cfg',JSON.stringify({pass:CFG.pass,extract:CFG.extract,draft:CFG.draft,bad:CFG.bad||[],mode:CFG.mode}))}catch(e){}}
+function saveCfg(){try{localStorage.setItem('naenal-cfg',JSON.stringify({pass:CFG.pass,extract:CFG.extract,draft:CFG.draft,bad:CFG.bad||[],mode:CFG.mode,effort:CFG.effort,temp:CFG.temp}))}catch(e){}}
 const USAGE=[]; // {role,model,in,out,ms}
 function fresh(){
   S={phase:'weather',weather:'',wxCustom:false,
@@ -196,7 +196,7 @@ async function streamLLM(prompt,model,onText){
     const timer=setTimeout(()=>{if(!first)ctl.abort()},90000);
     let r;
     try{r=await fetch('/api/chat',{method:'POST',signal:ctl.signal,headers:{'Content-Type':'application/json','x-passcode':encodeURIComponent(CFG.pass)},
-      body:JSON.stringify({model,prompt,role:'draft',max_tokens:3000,temperature:0.4})});}
+      body:JSON.stringify({model,prompt,role:'draft',max_tokens:3000,temperature:CFG.temp??0.4,effort:CFG.effort||'minimal'})});}
     catch(e){clearTimeout(timer);throw {code:'no_response',message:`${model}이(가) 90초 동안 응답하지 않았어요. 무료 등급에서 붐비는 모델일 수 있으니 초안 모델을 바꿔 보세요.`}}
     if(!r.ok){const j=await r.json().catch(()=>({}));const m=j.message||'';throw {code:/not found/i.test(m)?'model_unavailable':(j.error||('http_'+r.status)),message:m}}
     const rd=r.body.getReader(),dec=new TextDecoder();let all='';
@@ -416,7 +416,7 @@ async function makeDraft(again,model=CFG.draft){
     if(!c.body)throw {code:'empty',message:'본문이 비어 있어요'};
     if(c.strippedTitle)ev(`지침과 달리 제목을 붙여서 뗐어요: "${c.strippedTitle}"`,'drop');
     const u=USAGE[USAGE.length-1]||{};
-    S.draft={title:'',body:c.body,strippedTitle:c.strippedTitle,at:new Date().toISOString(),model,tin:u.in,tout:u.out,ms:u.ms};
+    S.draft={title:'',body:c.body,strippedTitle:c.strippedTitle,effort:CFG.effort||'minimal',temp:CFG.temp??0.4,at:new Date().toISOString(),model,tin:u.in,tout:u.out,ms:u.ms};
     S.draft.checks=guideCheck(S.draft.body,{answers:allQA().filter(x=>!x.btn).map(x=>x.a).concat(S.extra?[S.extra]:[]),weather:S.weather,whenText:S.scene.time,mustHave:['event','object','sense'].flatMap(k=>S.s3[k].vals.filter(v=>!S.removed.has(v)))});
     S.drafts.unshift(S.draft);
     ev(`초안 생성 (${model}) ${((performance.now()-t)/1000).toFixed(1)}초, 입력 ${u.in} / 출력 ${u.out} 토큰`);
@@ -459,7 +459,7 @@ function runRecord(d=S.draft){
     extractIn:USAGE.filter(x=>x.role!=='draft').reduce((n,x)=>n+x.in,0),extractOut:USAGE.filter(x=>x.role!=='draft').reduce((n,x)=>n+x.out,0),extractCalls:USAGE.filter(x=>x.role!=='draft').length,
     q2:S.s2.answers.length,q3:S.s3.answers.length,mins,mode:S.mode||'base',chars:a.chars,
     slots:Object.fromEntries(ORDER.map(k=>[k,S.s3[k].vals])),
-    qa:allQA(),title:d.title,body:d.body,checks:d.checks,fact:d.fact,
+    qa:allQA(),title:d.title,body:d.body,checks:d.checks,fact:d.fact,effort:d.effort,temp:d.temp,
     newWords:a.news,flags:a.flags,newRatio:a.words?(a.news.length/a.words):0};
 }
 function loadRuns(){try{return JSON.parse(localStorage.getItem('naenal-runs')||'[]')}catch(e){return[]}}
@@ -468,7 +468,7 @@ function recordText(r){
   return `## ${r.title||((r.scene?.time||'')+' · '+(r.scene?.place||''))}
 - 날씨: ${r.weather} / 언제: ${r.scene.time} / 어디: ${r.scene.place}
 - 질문 수: 2단계 ${r.q2}, 3단계 ${r.q3} / 초안까지 ${r.mins!=null?r.mins.toFixed(1)+'분':'-'}
-- 초안 모델: ${r.model||'-'} (입력 ${r.tin??'-'} / 출력 ${r.tout??'-'} 토큰)
+- 초안 모델: ${r.model||'-'} · 생각 ${r.effort||'minimal'} · temperature ${r.temp??0.4} (입력 ${r.tin??'-'} / 출력 ${r.tout??'-'} 토큰)
 - 판독 모델: ${r.extractModel||'-'} (${r.extractCalls??'-'}회, 입력 ${r.extractIn??'-'} / 출력 ${r.extractOut??'-'} 토큰)
 - 질문 모드: ${MODE_NAME[r.mode||'base']} / 초안 ${r.chars??'-'}자
 - 슬롯: ${Object.entries(r.slots).map(([k,v])=>`${S3NAME[k]} [${v.join(', ')}]`).join(' ')}
@@ -600,6 +600,8 @@ function settingsHTML(){
     <div class="row" style="margin:0"><input type="text" id="pass" placeholder="팀 암호" value="${esc(CFG.pass)}" autocomplete="off" style="flex:1;min-width:0"><button id="b-pass">연결하고 모델 불러오기</button></div>
     <label class="note">판독 모델 (가볍고 빠른 모델)<input type="text" id="mExtract" list="modelList" value="${esc(CFG.extract)}"></label>
     <label class="note">초안 모델<input type="text" id="mDraft" list="modelList" value="${esc(CFG.draft)}"></label>
+    <div class="row" style="margin:0"><label class="note">초안 생각 단계 (Gemini) <select id="mEffort">${['minimal','low','medium','high'].map(v=>`<option ${ (CFG.effort||'minimal')===v?'selected':''}>${v}</option>`).join('')}</select></label>
+    <label class="note">temperature <select id="mTemp">${[0.4,0.7,1.0].map(v=>`<option ${(CFG.temp??0.4)==v?'selected':''}>${v}</option>`).join('')}</select></label></div>
     <fieldset style="border:0;padding:0;margin:0"><legend class="note">질문 모드 (새 글부터 적용)</legend>
       <div class="row" style="margin:4px 0 0">
         <label class="card" style="cursor:pointer"><input type="radio" name="qmode" id="mode-base" value="base" ${CFG.mode!=='ext'?'checked':''}> 기본: 사건·사물·감각 (명세)</label>
@@ -642,6 +644,7 @@ function bind(){
   if(me)me.onchange=()=>{CFG.extract=me.value.trim();saveCfg();renderLog()};
   document.querySelectorAll('input[name=qmode]').forEach(x=>x.onchange=()=>{CFG.mode=x.value;saveCfg();renderModelbar()});
   if(md)md.onchange=()=>{CFG.draft=md.value.trim();saveCfg();renderLog()};
+  const mef=$('#mEffort'),mtp=$('#mTemp');if(mef)mef.onchange=()=>{CFG.effort=mef.value;saveCfg()};if(mtp)mtp.onchange=()=>{CFG.temp=+mtp.value;saveCfg()};
   document.querySelectorAll('[data-hcopy]').forEach(b=>b.onclick=()=>copyText(recordText(loadRuns()[+b.dataset.hcopy]),b));
   on('b-hall',e=>copyText(loadRuns().map(recordText).join('\n---\n\n'),e.currentTarget));
   on('b-hclear',()=>{try{localStorage.removeItem('naenal-runs')}catch(e){}render()});

@@ -25,7 +25,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'method' });
   if (!checkAccess(req, res)) return;
 
-  const { model, prompt, role = 'extract', max_tokens = 800, temperature = 0.2 } = req.body || {};
+  const { model, prompt, role = 'extract', max_tokens = 800, temperature = 0.2, effort } = req.body || {};
   if (!model || !prompt) return res.status(400).json({ error: 'bad_request', message: 'model과 prompt가 필요해요.' });
   if (String(prompt).length > 20000) return res.status(400).json({ error: 'too_long', message: '프롬프트가 너무 길어요.' });
 
@@ -41,7 +41,8 @@ export default async function handler(req, res) {
   };
   if (isGemini) {
     // Gemini 3 계열은 생각을 끌 수 없어 가장 낮게 둔다. 생각 토큰을 감안해 한도를 넉넉히
-    body.reasoning_effort = 'minimal';
+    // 실험실에서 생각 단계를 고르면 그 값을, 아니면 가장 낮게 (거절되면 post()가 한 단계씩 올림)
+    body.reasoning_effort = ['minimal', 'low', 'medium', 'high'].includes(effort) ? effort : 'minimal';
     body.max_tokens = role === 'draft' ? 6000 : 2000;
   } else if (/deepseek-v4/i.test(model)) {
     // NVIDIA에서 DeepSeek V4는 생각 모드 옵션이 없으면 응답이 멈춘다고 보고됨

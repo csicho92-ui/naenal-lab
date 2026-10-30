@@ -48,6 +48,8 @@ function buildDraftPrompt({ weather, materials, qa, removed = [], extra = '' }) 
 [재료]
 ${mat.join('\n')}${removed.length ? `\n\n[사용자가 뺀 조각 — 쓰지 않는다]\n${removed.join('\n')}` : ''}
 
+[참고] 첫 질문("${weather} 같았던 날…")은 마음의 날씨를 비유로 물은 것이다. 답에 나오는 '${weather}' 같은 날씨 표현은 대개 그날의 마음을 빗댄 말이니 실제 날씨로 쓰지 않는다. 그 자리에서 몸으로 겪은 날씨라고 분명히 말한 경우만 예외다.
+
 [질문과 답 원문 — 대사와 사실은 여기서만 가져온다]
 ${qa.map(x => `Q: ${x.q}\nA: ${x.a}`).join('\n')}
 
